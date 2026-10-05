@@ -145,29 +145,18 @@
 		margin-bottom: 2px;
 	}
 
-	/* Docked: the cover fills the block behind the content, faded and blurred so text stays readable. */
-	[data-role~='tidal-root'] {
-		position: relative;
-		flex: 1 1 auto;
-		overflow: hidden;
-	}
-	[data-role~='tidal-backdrop'] {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
-		opacity: 0.12;
-		filter: blur(24px);
-		pointer-events: none;
-	}
-	[data-role~='tidal-backdrop'] .sf-img-frame {
+	/* Docked: the cover above the player, as wide as the block up to its own size (320 px), centred. */
+	[data-role~='tidal-art'] {
+		align-self: center;
 		width: 100%;
-		height: 100%;
+		max-width: 320px;
+		margin-bottom: 8px;
+	}
+	[data-role~='tidal-art'] .sf-img-frame {
+		width: 100%;
+		height: auto;
 		border-radius: 0;
 		box-shadow: none;
-	}
-	[data-role~='tidal-content'] {
-		position: relative;
-		z-index: 1;
 	}
 
 	/* The play / pause marker column: fixed width so every title starts at the same place. */

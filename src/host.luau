@@ -493,8 +493,9 @@ local function sleep_label(s: Snapshot): string?
    return tostring(math.max(1, math.ceil(((sleep.at_s or os.time()) - os.time()) / 60))) .. "m"
 end
 
--- Two lines beside the cover: title and controls, then the timeline.
-local function now_playing(block: Block, s: Snapshot): Node
+-- Two lines beside the cover: title and controls, then the timeline. With `big`, the cover shows
+-- above instead (see `big_cover`), so the row leaves it out.
+local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    local track = s.track :: link.Track
 
    -- Controls TIDAL doesn't offer here are left out rather than greyed.
@@ -544,16 +545,16 @@ local function now_playing(block: Block, s: Snapshot): Node
       with(ui.text({ ui.span(link.clock(length), "muted") }), { key = "length", role = "tidal-time" }),
    }), { key = "timeline", role = "tidal-timeline" })
 
-   return with(ui.row({
-      cover_node(block, s),
-      with(ui.col({
-         with(ui.row({
-            heading(block, s),
-            with(ui.row(controls), { key = "controls", role = "tidal-controls" }),
-         }), { key = "top", role = "tidal-top" }),
-         timeline,
-      }), { key = "body", role = "tidal-body" }),
-   }), { key = "player", role = "tidal-player" })
+   local body = with(ui.col({
+      with(ui.row({
+         heading(block, s),
+         with(ui.row(controls), { key = "controls", role = "tidal-controls" }),
+      }), { key = "top", role = "tidal-top" }),
+      timeline,
+   }), { key = "body", role = "tidal-body" })
+   -- Built without a nil entry: a hole in the list makes Tern drop every child.
+   local row: { Node } = if big then { body } else { cover_node(block, s), body }
+   return with(ui.row(row), { key = "player", role = "tidal-player" })
 end
 
 -- A floating player without focus. Tern keeps the card a few lines tall, so it fills them: cover
@@ -653,6 +654,29 @@ end
 -- Rows the block spends on things other than the list below the player: the two-line player, the
 -- list heading and some air.
 local PANEL_CHROME_ROWS = 5
+-- The docked cover is as wide as the block up to its own 320 px (styles/player.css), plus an 8 px
+-- gap. Tern doesn't say how big a cell is; at its default font one is about 8 × 16 px.
+local ART_PX = 320
+local ART_GAP_PX = 8
+local CELL_W_PX = 8
+local CELL_H_PX = 16
+-- Rows kept for the player and some of the queue before a big cover is worth showing.
+local MIN_ROWS_BESIDE_ART = 14
+
+local function art_rows(block: Block): number
+   return math.ceil((math.min(block.cx.cols * CELL_W_PX, ART_PX) + ART_GAP_PX) / CELL_H_PX)
+end
+
+-- Docked, the cover shows above the player (as wide as the block, up to its own size), when the
+-- block is tall enough to keep the player and some of the queue in view; otherwise it stays a
+-- thumbnail.
+local function big_cover(block: Block, s: Snapshot): boolean
+   return not block.floating
+      and s.cover ~= nil
+      and block.blob ~= nil
+      and block.cover_key == (s.cover :: { key: string }).key
+      and block.cx.rows - art_rows(block) >= MIN_ROWS_BESIDE_ART
+end
 
 -- Rows left for the list under the player: whatever height Tern gives the block (docked, or a
 -- focused floating card of any size), so the list fills it.
@@ -660,6 +684,10 @@ local function panel_rows(block: Block): number
    local rows = block.cx.rows - PANEL_CHROME_ROWS
    if block.search then
       rows -= 1 -- the search line
+   end
+   local s = snap
+   if s and big_cover(block, s) then
+      rows -= art_rows(block)
    end
    return math.max(0, rows)
 end
@@ -822,7 +850,7 @@ local function view(block: Block): BlockView
    elseif block.glance then
       return { main = ui.col({ glance_view(block, s) }) }
    else
-      main = now_playing(block, s)
+      main = now_playing(block, s, big_cover(block, s))
    end
    local st = block.search
    local parts: { Node } = { main }
@@ -841,13 +869,14 @@ local function view(block: Block): BlockView
          end
       end
    end
-   local layers: { Node } = {}
-   -- Docked, the cover sits faintly behind everything (styles/player.css fades and blurs it).
-   if s and s.cover and not block.floating and block.blob and block.cover_key == s.cover.key then
-      table.insert(layers, with(ui.node("image", { blob = block.blob, alt = "" }), { key = "backdrop", role = "tidal-backdrop" }))
+   -- Docked with a big cover, it goes on top, as wide as the block.
+   if s and big_cover(block, s) then
+      table.insert(parts, 1, with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), {
+         key = "art",
+         role = "tidal-art",
+      }))
    end
-   table.insert(layers, with(ui.col(parts), { key = "content", role = "tidal-content" }))
-   local result: BlockView = { main = with(ui.col(layers), { key = "root", role = "tidal-root" }) }
+   local result: BlockView = { main = ui.col(parts) }
    if notice then
       result.dock = ui.col({ with(ui.text({ ui.span(notice.text, "muted") }), { key = "notice" }) })
    end
