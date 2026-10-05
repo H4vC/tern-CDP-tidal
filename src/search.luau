@@ -250,8 +250,9 @@ local function heading(st: State): Node
    }), { key = "query", role = "tidal-line tidal-query" })
 end
 
--- `rows` caps how many items show; the rest are summarised in one line.
-function search.view(st: State, rows: number): Node
+-- `rows` caps how many items show; the rest are summarised in one line. `playing` is the id of the
+-- track that's playing, shown in the accent colour where it appears.
+function search.view(st: State, rows: number, playing: string?): Node
    local lines: { Node } = { heading(st) }
    local shown = math.min(#st.items, math.max(1, rows))
    for i = 1, shown do
@@ -267,8 +268,13 @@ function search.view(st: State, rows: number): Node
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
+      local now = item.kind == "track" and playing ~= nil and item.id == playing
       local row: { Node } = {
-         with(ui.text(spans), { key = "label", role = "tidal-line tidal-row-label", actions = { click = "pick=" .. i } }),
+         with(ui.text(spans), {
+            key = "label",
+            role = if now then "tidal-line tidal-row-label tidal-now" else "tidal-line tidal-row-label",
+            actions = { click = "pick=" .. i },
+         }),
       }
       if search.queueable(item) then
          table.insert(row, small_button("next", "next", "qnext=" .. i))

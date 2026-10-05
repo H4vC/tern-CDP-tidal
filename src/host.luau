@@ -743,7 +743,7 @@ local function queue_view(block: Block, s: Snapshot): Node?
          marker,
          with(ui.text(spans), {
             key = "label",
-            role = "tidal-line tidal-row-label",
+            role = if is_current then "tidal-line tidal-row-label tidal-now" else "tidal-line tidal-row-label",
             actions = if is_current then nil else { click = "jump=" .. tostring(index_of(i)) },
          }),
       }
@@ -856,7 +856,7 @@ local function view(block: Block): BlockView
    local st = block.search
    local parts: { Node } = { main }
    if st then
-      table.insert(parts, search.view(st, panel_rows(block)))
+      table.insert(parts, search.view(st, panel_rows(block), s and s.track and s.track.id))
    end
    -- Results or a list take the space while there are any; otherwise the player shows the lyrics or
    -- the queue in whatever rows are left, docked or floating.
