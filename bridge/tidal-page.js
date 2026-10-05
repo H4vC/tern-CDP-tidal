@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 16;
+	const VERSION = 17;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -268,8 +268,21 @@
 		const tracks = items.filter((i) => i.type === 'track' && i.item && i.item.allowStreaming !== false && String(i.item.id) !== String(current));
 		if (tracks.length === 0) throw new Error('TIDAL has no tracks in this radio');
 		storeTracks(tracks.map((t) => t.item));
+		// Radio is an ordered list, like TIDAL's own list plays (which turn shuffle off too).
+		if (queue.shuffleModeEnabled) dispatch('playQueue/DISABLE_SHUFFLE_MODE');
 		dispatch('playQueue/CLEAR_UPCOMING');
-		dispatch('playQueue/ADD_LAST', { context: { id: mixId, type: 'mix' }, mediaItemIds: tracks.map((t) => t.item.id) });
+		// As ordinary list entries (`priority_none`), the way a played list's tracks are. ADD_LAST would
+		// mark them as added by you (`priority_keep`), and TIDAL keeps those in front of the next list
+		// you start.
+		const batch = Date.now().toString(16);
+		dispatch('playQueue/APPEND_ELEMENTS', {
+			elements: tracks.map((t, i) => ({
+				context: { id: mixId, type: 'mix' },
+				mediaItemId: t.item.id,
+				priority: 'priority_none',
+				uid: 'pq__' + batch + '__r' + i,
+			})),
+		});
 		dispatch('playQueue/SET_SOURCE_PROPERTIES', {
 			entityId: mixId,
 			entityType: 'mix',
@@ -278,7 +291,7 @@
 			trackListName: 'mixes/' + mixId,
 			url: '/mix/' + mixId,
 		});
-		// CLEAR_UPCOMING drops TIDAL's preloaded next track and ADD_LAST doesn't line up a new one;
+		// CLEAR_UPCOMING drops TIDAL's preloaded next track and appending doesn't line up a new one;
 		// without this the song ends and playback stops instead of moving on to the radio.
 		dispatch('player/PRELOAD_NEXT_ITEM');
 	};
@@ -331,7 +344,9 @@
 			case 'remove': {
 				// `<uid>` of a queue entry.
 				if (!(s.playQueue.elements || []).some((e) => e.uid === arg)) throw new Error('That entry left the queue');
-				return dispatch('playQueue/REMOVE_ELEMENT', { uid: arg });
+				dispatch('playQueue/REMOVE_ELEMENT', { uid: arg });
+				// The removed entry may be the track TIDAL had lined up next.
+				return dispatch('player/PRELOAD_NEXT_ITEM');
 			}
 			case 'move': {
 				// `<from> <to>` queue indices.
@@ -340,7 +355,9 @@
 				if (![from, to].every((n) => Number.isInteger(n) && n >= 0 && n < length)) throw new Error('No queue entry there');
 				// TIDAL's `toIndex` is the gap the entry is dropped into (before the entry there), so
 				// moving down lands one further than the final position.
-				return dispatch('playQueue/MOVE_TRACK', { fromIndex: from, toIndex: to > from ? to + 1 : to });
+				dispatch('playQueue/MOVE_TRACK', { fromIndex: from, toIndex: to > from ? to + 1 : to });
+				// What plays next may have changed.
+				return dispatch('player/PRELOAD_NEXT_ITEM');
 			}
 			case 'queue-next':
 			case 'queue-last': {
