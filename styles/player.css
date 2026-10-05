@@ -145,8 +145,6 @@
 		margin-bottom: 2px;
 	}
 
-	/* One list row: the label takes the width and is what a click plays; small buttons sit at the
-	   end and only show on hover (and on the selected row). */
 	/* The play / pause marker column: fixed width so every title starts at the same place. */
 	[data-role~='tidal-marker'] {
 		flex: none;
@@ -161,6 +159,8 @@
 	[data-role~='tidal-marker'][data-tone='accent'] {
 		color: var(--tidal-tint, var(--accent));
 	}
+	/* One list row: the label takes the width and is what a click plays; small buttons sit at the
+	   end and only show on hover (and on the selected row). */
 	[data-role~='tidal-row'] {
 		align-items: center;
 		gap: 2px;
