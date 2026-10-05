@@ -632,6 +632,21 @@ local function glance_view(block: Block, s: Snapshot): Node
       table.insert(lines, line("next", { ui.span("last in the queue", "dim") }))
    end
 
+   -- A taller card (Tern's floating size varies) fills its extra rows with what plays after that.
+   local queue = s.queue
+   local spare = block.cx.rows - #lines - 1
+   if queue and next_track and spare > 0 then
+      local from = queue.current + 3 -- 1-based: current is current + 1, next is current + 2
+      for i = from, math.min(#queue.items, from + spare - 1) do
+         local item = queue.items[i]
+         table.insert(lines, line("then" .. i, {
+            ui.span("> ", "dim"),
+            ui.span(item.title or "…", "muted"),
+            ui.span(if item.artist ~= "" then " · " .. item.artist else "", "dim"),
+         }))
+      end
+   end
+
    return with(ui.row({
       cover_node(block, s),
       with(ui.col(lines), { key = "body", role = "tidal-body" }),
