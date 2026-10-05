@@ -693,7 +693,6 @@ local function queue_view(block: Block, s: Snapshot): Node?
       local item = queue.items[i]
       local is_current = i == current
       local spans: { Span } = {
-         ui.span(if is_current then (if playing() then "▶ " else "⏸ ") else "  ", if is_current then nil else "dim"),
          ui.span(item.title or "…", if is_current then "strong" elseif i < current then "dim" else nil),
       }
       if item.artist ~= "" then
@@ -702,7 +701,17 @@ local function queue_view(block: Block, s: Snapshot): Node?
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
+      -- A column for the marker: Tern's play / pause icon on the current entry (crisper than a text
+      -- glyph), empty on the others so the titles line up.
+      local marker = if is_current
+         then with(ui.row({ ui.node("icon", { name = if playing() then "play" else "pause" }) }), {
+            key = "marker",
+            role = "tidal-marker",
+            tone = "accent",
+         })
+         else with(ui.text(""), { key = "marker", role = "tidal-marker" })
       local row: { Node } = {
+         marker,
          with(ui.text(spans), {
             key = "label",
             role = "tidal-line tidal-row-label",
