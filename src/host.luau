@@ -410,7 +410,9 @@ local function message(block: Block, title: string, body: string, buttons: { Nod
 end
 
 local function cover_node(block: Block, s: Snapshot): Node
-   if block.blob and s.cover and block.cover_key == s.cover.key then
+   -- The previous track's cover stays until the new one arrives (the tick swaps `blob` then), so
+   -- the layout doesn't jump on every track change.
+   if block.blob and s.cover then
       return with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), {
          key = "cover",
          role = "tidal-cover",
@@ -674,7 +676,6 @@ local function big_cover(block: Block, s: Snapshot): boolean
    return not block.floating
       and s.cover ~= nil
       and block.blob ~= nil
-      and block.cover_key == (s.cover :: { key: string }).key
       and block.cx.rows - art_rows(block) >= MIN_ROWS_BESIDE_ART
 end
 
