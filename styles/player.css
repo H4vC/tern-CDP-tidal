@@ -89,6 +89,31 @@
 		min-width: 0;
 	}
 
+	/* The seek bar: cells with no gap read as one thin line; each cell's padding is its click target. */
+	[data-role~='tidal-seek'] {
+		flex: 1 1 0;
+		min-width: 0;
+		gap: 0;
+		align-items: center;
+	}
+	[data-role~='tidal-seek-cell'] {
+		flex: 1 1 0;
+		min-width: 0;
+		padding: 5px 0;
+		cursor: pointer;
+	}
+	[data-role~='tidal-seek-line'] {
+		flex: 1 1 0;
+		height: 3px;
+		background: var(--l2);
+	}
+	[data-role~='tidal-seek-line'][data-tone='accent'] {
+		background: var(--accent);
+	}
+	[data-role~='tidal-seek-cell']:hover [data-role~='tidal-seek-line'] {
+		background: var(--t3);
+	}
+
 	[data-role~='tidal-link'] {
 		flex: none;
 		cursor: pointer;

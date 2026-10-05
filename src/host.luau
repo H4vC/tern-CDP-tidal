@@ -348,6 +348,24 @@ local function cover_node(block: Block, s: Snapshot): Node
    return with(ui.row({ ui.node("icon", { name = "wave" }) }), { key = "cover", role = "tidal-cover tidal-cover-empty" })
 end
 
+-- A progress bar you can click to seek: Tern's progress node doesn't say where it was clicked, so
+-- the bar is a row of thin cells, each seeking to its own point. About one cell per column.
+local function seek_bar(block: Block, s: Snapshot, fraction: number): Node
+   local count = math.clamp(block.cx.cols - 24, 16, 160)
+   local lit = math.floor(fraction * count + 0.5)
+   local cells: { Node } = table.create(count)
+   for i = 1, count do
+      local props: { [string]: any } = { key = i, role = "tidal-seek-cell" }
+      if s.can.seek then
+         props.actions = { click = "seekto=" .. tostring(i) }
+      end
+      cells[i] = with(ui.row({
+         with(ui.text(""), { role = "tidal-seek-line", tone = if i <= lit then "accent" else nil }),
+      }), props)
+   end
+   return with(ui.row(cells), { key = "bar", role = "tidal-seek" })
+end
+
 -- Two lines beside the cover: title and controls, then the timeline.
 local function now_playing(block: Block, s: Snapshot): Node
    local track = s.track :: link.Track
@@ -393,7 +411,7 @@ local function now_playing(block: Block, s: Snapshot): Node
    local length = track.length_ms
    local timeline = with(ui.row({
       with(ui.text({ ui.span(link.clock(pos), "muted") }), { key = "at", role = "tidal-time" }),
-      with(ui.progress(if length and length > 0 then pos / length else 0, ""), { key = "bar", role = "tidal-bar" }),
+      seek_bar(block, s, if length and length > 0 then pos / length else 0),
       with(ui.text({ ui.span(link.clock(length), "muted") }), { key = "length", role = "tidal-time" }),
    }), { key = "timeline", role = "tidal-timeline" })
 
@@ -775,6 +793,13 @@ tern.block.define("player", {
             play_item(block, st.items[index])
          elseif ev.act == "jump" and index then
             send(block, "jump", index)
+         elseif ev.act == "seekto" and index then
+            local length = snap and snap.track and snap.track.length_ms
+            if length then
+               -- The cell's middle, so the first and last cells aren't 0 % and 100 % exactly.
+               local count = math.clamp(block.cx.cols - 24, 16, 160)
+               seek(block, (index - 0.5) / count * length)
+            end
          else
             act(block, ev.act)
          end
