@@ -313,6 +313,7 @@ function publish() {
 			format: s.format || undefined,
 			source: s.source || undefined,
 			next: s.next || undefined,
+			queue: s.queue || undefined,
 			can: { toggle: true, next: true, prev: true, seek: !!track.length_ms, shuffle: true, repeat: true, volume: true },
 		});
 		if (track.cover) snap.cover = { key: track.cover, url: track.cover };

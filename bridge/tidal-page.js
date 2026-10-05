@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 4;
+	const VERSION = 6;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -35,12 +35,46 @@
 	const artists = (media) => (media.artists || []).map((a) => a.name).join(', ');
 	const titled = (media) => media.title + (media.version ? ' (' + media.version + ')' : '');
 
+	// ISO 8601 durations from the open API ("PT5M26S") in seconds.
+	const isoSeconds = (text) => {
+		const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(text || '');
+		return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : null;
+	};
+
+	// A queued track's details: from the classic catalog when TIDAL loaded them there, else from the
+	// open-API entities (title and length only), else unknown.
+	const queuedTrack = (s, id) => {
+		const item = s.content.mediaItems[id] && s.content.mediaItems[id].item;
+		if (item) return { title: titled(item), artist: artists(item), length_s: item.duration || null };
+		const tracks = s.entities.tracks && s.entities.tracks.entities;
+		const entity = tracks && tracks[id] && tracks[id].attributes;
+		if (entity) return { title: titled(entity), artist: '', length_s: isoSeconds(entity.duration) };
+		return null;
+	};
+
 	// The track after the current one in the queue, when TIDAL has loaded its details.
 	const upNext = (s) => {
 		const queue = s.playQueue;
 		const element = queue.elements && queue.elements[queue.currentIndex + 1];
-		const item = element && s.content.mediaItems[element.mediaItemId];
-		return item && item.item ? { title: titled(item.item), artist: artists(item.item) } : null;
+		const next = element && queuedTrack(s, String(element.mediaItemId));
+		return next ? { title: next.title, artist: next.artist } : null;
+	};
+
+	const QUEUE_BEFORE = 2;
+	const QUEUE_AFTER = 40;
+
+	// The queue around the current track: a couple already played, then what comes up.
+	const queueWindow = (s) => {
+		const queue = s.playQueue;
+		const elements = queue.elements || [];
+		const from = Math.max(0, queue.currentIndex - QUEUE_BEFORE);
+		const to = Math.min(elements.length, queue.currentIndex + 1 + QUEUE_AFTER);
+		const items = [];
+		for (let i = from; i < to; i++) {
+			const known = queuedTrack(s, String(elements[i].mediaItemId));
+			items.push({ title: known ? known.title : null, artist: known ? known.artist : '', length_s: known ? known.length_s : null });
+		}
+		return { current: queue.currentIndex - from, total: elements.length, position: queue.currentIndex, items };
 	};
 
 	// "24-bit 48 kHz FLAC", from what the player actually streams.
@@ -71,6 +105,7 @@
 					}
 				: null,
 			next: upNext(s),
+			queue: queueWindow(s),
 			// PLAYING, NOT_PLAYING, STALLED, ...
 			state: pc.playbackState,
 			// The position TIDAL last synced, and the wall-clock ms when it did.
@@ -129,6 +164,17 @@
 			case 'mute':
 				if (!!s.playbackControls.muted !== (arg === 'on')) dispatch('playbackControls/TOGGLE_MUTE');
 				return;
+			case 'radio': {
+				// The current track's radio (TIDAL's track mix), played the way TIDAL's "Go to track radio" does.
+				const id = s.playbackControls.mediaProduct && s.playbackControls.mediaProduct.productId;
+				const item = id && s.content.mediaItems[id] && s.content.mediaItems[id].item;
+				const tracks = s.entities.tracks && s.entities.tracks.entities;
+				const related = id && tracks && tracks[id] && tracks[id].relationships;
+				const mixId = (item && item.mixes && item.mixes.TRACK_MIX)
+					|| (related && related.radio && related.radio.data && related.radio.data[0] && related.radio.data[0].id);
+				if (!mixId) throw new Error('TIDAL has no radio for this track');
+				return dispatch('mix/PLAY_MIX', { mixId });
+			}
 			case 'play': {
 				// `<kind> <id>` from a search result; the same actions TIDAL's own search uses.
 				const [kind, id] = String(arg).split(' ');

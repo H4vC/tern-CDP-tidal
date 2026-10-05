@@ -109,6 +109,12 @@
 	[data-role~='tidal-selected'] {
 		background: var(--well);
 	}
+	[data-role~='tidal-queue'] {
+		margin-top: 10px;
+	}
+	[data-role~='tidal-queue-heading'] {
+		margin-bottom: 2px;
+	}
 
 	[data-role~='tidal-search-hint'] {
 		align-items: center;

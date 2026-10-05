@@ -65,6 +65,14 @@ export type Snapshot = {
    source: string?,
    -- The next track in the queue, when TIDAL has its details.
    next: { title: string, artist: string }?,
+   -- The queue around the current track: `items[current]` (1-based in Luau: current + 1) is playing;
+   -- `position` is its index in the whole queue of `total`. Titles are nil until TIDAL loads them.
+   queue: {
+      current: number,
+      position: number,
+      total: number,
+      items: { { title: string?, artist: string, length_s: number? } },
+   }?,
    reply: { id: string, error: string? }?,
 }
 

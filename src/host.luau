@@ -31,6 +31,8 @@ type Block = {
    glance: boolean,
    -- Whether the pane had focus at the last tick, to open search when it gains it.
    focused: boolean,
+   -- Floating (picture in picture); a docked player also lists the queue.
+   floating: boolean,
 }
 
 -- Blocks have no close hook; the tick drops panes that are gone.
@@ -245,7 +247,7 @@ end
 local function act(block: Block, name: string)
    if name == "playpause" then
       toggle(block)
-   elseif name == "next" or name == "prev" then
+   elseif name == "next" or name == "prev" or name == "radio" then
       send(block, name)
    elseif name == "back" then
       seek(block, position() - SEEK_STEP_MS)
@@ -368,6 +370,8 @@ local function now_playing(block: Block, s: Snapshot): Node
    if s.can["repeat"] then
       table.insert(controls, button("repeat", "repeat", "repeat", true, (shown("repeat", s["repeat"]) or "off") ~= "off"))
    end
+   -- Starts the current track's radio, replacing the queue.
+   table.insert(controls, button("radio", "broadcast", "radio", true))
    local level = shown("volume", s.volume)
    if s.can.volume and level then
       local muted = shown("muted", s.muted) == true
@@ -487,6 +491,48 @@ local function glance_view(block: Block, s: Snapshot): Node
    }), { key = "glance", role = "tidal-player tidal-glance" })
 end
 
+-- Rows the block spends on things other than the queue: the two-line player, the queue heading
+-- and some air.
+local QUEUE_CHROME_ROWS = 5
+
+-- The queue around the current track, one line each, the current one highlighted. Shown when the
+-- player is its own block (not floating).
+local function queue_view(block: Block, s: Snapshot): Node?
+   local queue = s.queue
+   if queue == nil or #queue.items == 0 then
+      return nil
+   end
+   local room = math.max(3, block.cx.rows - QUEUE_CHROME_ROWS)
+   local current = queue.current + 1
+   local lines: { Node } = {
+      with(ui.text({
+         ui.span("Queue", "strong"),
+         ui.span(string.format("  %d of %d", queue.position + 1, queue.total), "dim"),
+         ui.span(if s.source then "  · " .. (s.source :: string) else "", "dim"),
+      }), { key = "heading", role = "tidal-line tidal-queue-heading" }),
+   }
+   for i = 1, math.min(#queue.items, room) do
+      local item = queue.items[i]
+      local is_current = i == current
+      local spans: { Span } = {
+         ui.span(if is_current then (if playing() then "▶ " else "⏸ ") else "  ", if is_current then nil else "dim"),
+         ui.span(item.title or "…", if is_current then "strong" elseif i < current then "dim" else nil),
+      }
+      if item.artist ~= "" then
+         table.insert(spans, ui.span(" · " .. item.artist, if i < current then "dim" else "muted"))
+      end
+      if item.length_s then
+         table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
+      end
+      table.insert(lines, with(ui.text(spans), {
+         key = "q" .. i,
+         role = if is_current then "tidal-line tidal-queue-item tidal-selected" else "tidal-line tidal-queue-item",
+         tone = if is_current then "accent" else nil,
+      }))
+   end
+   return with(ui.col(lines), { key = "queue", role = "tidal-search tidal-queue" })
+end
+
 local function view(block: Block): BlockView
    local s = snap
    local main: Node
@@ -510,7 +556,19 @@ local function view(block: Block): BlockView
       main = now_playing(block, s)
    end
    local st = block.search
-   local result: BlockView = { main = ui.col(if st then { main, search.view(st) } else { main }) }
+   local parts: { Node } = { main }
+   if st then
+      table.insert(parts, search.view(st))
+   end
+   -- Results take the space while there are any; otherwise a docked player lists the queue.
+   local searching = st ~= nil and (#st.items > 0 or st.waiting ~= nil)
+   if not searching and not block.floating and s and s.track then
+      local queue = queue_view(block, s)
+      if queue then
+         table.insert(parts, queue)
+      end
+   end
+   local result: BlockView = { main = ui.col(parts) }
    if notice then
       result.dock = ui.col({ with(ui.text({ ui.span(notice.text, "muted") }), { key = "notice" }) })
    end
@@ -581,6 +639,10 @@ local function tick()
       end
       local pane_view = link.pane_view(block.cx.pane)
       local glance = pane_view.floating and not pane_view.focused
+      if pane_view.floating ~= block.floating then
+         block.floating = pane_view.floating
+         block.signature = ""
+      end
       if pane_view.focused ~= block.focused then
          block.focused = pane_view.focused
          -- Focusing the player opens search; leaving it closes an untouched one.
@@ -619,6 +681,7 @@ tern.block.define("player", {
          signature = "",
          glance = pane_view.floating and not pane_view.focused,
          focused = pane_view.focused,
+         floating = pane_view.floating,
       }
       blocks[cx.pane] = block
       snap = snap or link.read()
