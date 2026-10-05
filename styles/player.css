@@ -1,0 +1,171 @@
+[data-surface='plugin.tidal.player'] {
+	--tidal-cover: 40px;
+
+	[data-role~='tidal-player'],
+	[data-role~='tidal-message'] {
+		align-items: center;
+		gap: 8px;
+		padding: 0;
+	}
+
+	[data-role~='tidal-cover'] {
+		flex: none;
+		width: var(--tidal-cover);
+	}
+	[data-role~='tidal-cover'] .sf-img-frame {
+		width: var(--tidal-cover);
+		height: var(--tidal-cover);
+		border-radius: 0;
+		box-shadow: none;
+	}
+	[data-role~='tidal-cover-empty'] {
+		height: var(--tidal-cover);
+		align-items: center;
+		justify-content: center;
+		background: var(--well);
+		color: var(--t4);
+	}
+
+	[data-role~='tidal-body'] {
+		flex: 1 1 0;
+		min-width: 0;
+		gap: 2px;
+	}
+	[data-role~='tidal-top'] {
+		align-items: center;
+		gap: 8px;
+	}
+	[data-role~='tidal-line'] {
+		flex: 1 1 0;
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	[data-role~='tidal-controls'] {
+		flex: none;
+		align-items: center;
+		gap: 0;
+	}
+	[data-role~='tidal-button'] {
+		width: 20px;
+		height: 20px;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0;
+		color: var(--t2);
+		cursor: pointer;
+	}
+	[data-role~='tidal-button']:hover {
+		background: var(--well);
+		color: var(--t1);
+	}
+	[data-role~='tidal-button'][data-tone='muted'] {
+		color: var(--t4);
+		cursor: default;
+		background: none;
+	}
+	[data-role~='tidal-button'][data-tone='accent'],
+	[data-role~='tidal-button-main'],
+	[data-role~='tidal-button-main']:hover {
+		color: var(--accent);
+	}
+	[data-role~='tidal-level'] {
+		width: 24px;
+		text-align: right;
+	}
+
+	[data-role~='tidal-timeline'] {
+		align-items: center;
+		gap: 6px;
+	}
+	[data-role~='tidal-time'] {
+		flex: none;
+		font-variant-numeric: tabular-nums;
+	}
+	[data-role~='tidal-bar'] {
+		flex: 1 1 0;
+		min-width: 0;
+	}
+
+	[data-role~='tidal-link'] {
+		flex: none;
+		cursor: pointer;
+	}
+
+	[data-role~='tidal-search'] {
+		gap: 0;
+		margin-top: 6px;
+	}
+	[data-role~='tidal-search'] [data-role~='tidal-line'] {
+		flex: none;
+		padding: 0 4px;
+	}
+	[data-role~='tidal-result'] {
+		cursor: pointer;
+	}
+	[data-role~='tidal-result']:hover,
+	[data-role~='tidal-selected'] {
+		background: var(--well);
+	}
+
+	[data-role~='tidal-search-hint'] {
+		align-items: center;
+		gap: 3px;
+		margin-left: 6px;
+		padding: 0 3px;
+		color: var(--t3);
+		cursor: pointer;
+	}
+	[data-role~='tidal-search-hint']:hover {
+		background: var(--well);
+		color: var(--t1);
+	}
+
+	[data-role~='tidal-heading'] {
+		flex: 1 1 0;
+		min-width: 0;
+		align-items: center;
+		gap: 6px;
+	}
+	[data-role~='tidal-mark'] {
+		flex: none;
+		width: 12px;
+	}
+	[data-role~='tidal-mark'] .sf-img-frame {
+		width: 12px;
+		height: 12px;
+		border-radius: 0;
+		box-shadow: none;
+	}
+	[data-role~='tidal-cover-empty'] [data-role~='tidal-mark'],
+	[data-role~='tidal-cover-empty'] [data-role~='tidal-mark'] .sf-img-frame {
+		width: 20px;
+		height: 20px;
+	}
+
+	[data-role~='tidal-glance'] {
+		/* About the height of the five lines beside it. */
+		--tidal-cover: 72px;
+		align-items: flex-start;
+		gap: 8px;
+	}
+	[data-role~='tidal-glance'] [data-role~='tidal-body'] {
+		gap: 1px;
+	}
+	/* In a column, the row rule's flex basis of 0 collapsed the lines to no height. */
+	[data-role~='tidal-glance'] [data-role~='tidal-line'] {
+		flex: none;
+		line-height: 1.25;
+	}
+	[data-role~='tidal-glance'] [data-role~='tidal-timeline'] {
+		gap: 6px;
+	}
+	[data-role~='tidal-glance'] .sf-progress .track {
+		height: 3px;
+	}
+	[data-role~='tidal-glance'] .sf-progress .lbl {
+		display: none;
+	}
+}

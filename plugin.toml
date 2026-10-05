@@ -1,0 +1,15 @@
+schema = 1
+id = "tidal"
+name = "TIDAL"
+version = "0.1.0"
+description = "Now playing and playback controls for the TIDAL desktop app."
+# Tern's chrome only takes its built-in icon names; the TIDAL mark (icons/tidal.svg) shows inside the block.
+icon = "wave"
+host = "src/host.luau"
+window = "src/window.luau"
+styles = ["styles/player.css"]
+
+[[blocks]]
+id = "player"
+title = "TIDAL"
+icon = "wave"
