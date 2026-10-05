@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 6;
+	const VERSION = 7;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -164,6 +164,13 @@
 			case 'mute':
 				if (!!s.playbackControls.muted !== (arg === 'on')) dispatch('playbackControls/TOGGLE_MUTE');
 				return;
+			case 'jump': {
+				// To the queue entry at this index; what clicking a row in TIDAL's own queue does.
+				const index = Number(arg);
+				const length = (s.playQueue.elements || []).length;
+				if (!Number.isInteger(index) || index < 0 || index >= length) throw new Error('No queue entry ' + arg);
+				return dispatch('playQueue/MOVE_TO', index);
+			}
 			case 'radio': {
 				// The current track's radio (TIDAL's track mix), played the way TIDAL's "Go to track radio" does.
 				const id = s.playbackControls.mediaProduct && s.playbackControls.mediaProduct.productId;

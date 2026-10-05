@@ -526,8 +526,10 @@ local function queue_view(block: Block, s: Snapshot): Node?
       end
       table.insert(lines, with(ui.text(spans), {
          key = "q" .. i,
-         role = if is_current then "tidal-line tidal-queue-item tidal-selected" else "tidal-line tidal-queue-item",
+         role = if is_current then "tidal-line tidal-queue-item tidal-selected" else "tidal-line tidal-queue-item tidal-result",
          tone = if is_current then "accent" else nil,
+         -- The entry's index in the whole queue: clicking plays it right away.
+         actions = if is_current then nil else { click = "jump=" .. tostring(queue.position - queue.current + i - 1) },
       }))
    end
    return with(ui.col(lines), { key = "queue", role = "tidal-search tidal-queue" })
@@ -771,6 +773,8 @@ tern.block.define("player", {
          local index = tonumber(ev.value)
          if ev.act == "pick" and st and index and st.items[index] then
             play_item(block, st.items[index])
+         elseif ev.act == "jump" and index then
+            send(block, "jump", index)
          else
             act(block, ev.act)
          end
