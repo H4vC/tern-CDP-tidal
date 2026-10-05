@@ -619,7 +619,7 @@ local function glance_view(block: Block, s: Snapshot): Node
    local next_track = s.next
    if next_track then
       table.insert(lines, line("next", {
-         ui.span("› ", "dim"),
+         ui.span("> ", "dim"),
          ui.span(next_track.title),
          ui.span(if next_track.artist ~= "" then " · " .. next_track.artist else "", "muted"),
       }))
@@ -637,7 +637,7 @@ local function glance_view(block: Block, s: Snapshot): Node
       for i = from, math.min(#queue.items, from + spare - 1) do
          local item = queue.items[i]
          table.insert(lines, line("then" .. i, {
-            ui.span("› ", "dim"),
+            ui.span("> ", "dim"),
             ui.span(item.title or "…", "muted"),
             ui.span(if item.artist ~= "" then " · " .. item.artist else "", "dim"),
          }))
