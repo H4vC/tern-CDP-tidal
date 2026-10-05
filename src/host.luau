@@ -443,10 +443,20 @@ local function seek_bar(block: Block, s: Snapshot, fraction: number): Node
    return with(ui.row(cells), { key = "bar", role = "tidal-seek" })
 end
 
-local QUALITY = { HI_RES_LOSSLESS = "HI-RES", HI_RES = "MQA", LOSSLESS = "LOSSLESS" }
+-- What TIDAL streams, as "24-bit 48 kHz FLAC" (TIDAL's quality name when the format isn't known
+-- yet); hi-res in the accent colour.
+local function format_badge(s: Snapshot, role: string): Node?
+   local text = s.format or (if s.quality then string.gsub(s.quality :: string, "_", " ") else nil)
+   if text == nil or text == "" then
+      return nil
+   end
+   local hires = s.quality == "HI_RES_LOSSLESS" or s.quality == "HI_RES"
+   return with(ui.badge(text, if hires then "accent" else "muted"), { key = "format", role = role })
+end
 
--- Title, then artist and album you can click for their track lists, the stream quality and the heart.
-local function heading(block: Block, s: Snapshot): Node
+-- Title, then artist and album you can click for their track lists, the stream format (unless it
+-- sits on the big cover) and the heart.
+local function heading(block: Block, s: Snapshot, big: boolean): Node
    local track = s.track :: link.Track
    local parts: { Node } = {
       mark_node(block, "mark") or ui.text(""),
@@ -466,12 +476,9 @@ local function heading(block: Block, s: Snapshot): Node
          actions = if track.album_id then { click = "album" } else nil,
       }))
    end
-   local quality = s.quality and QUALITY[s.quality]
-   if quality then
-      table.insert(parts, with(ui.badge(quality, if quality == "HI-RES" then "accent" else "muted"), {
-         key = "quality",
-         role = "tidal-quality",
-      }))
+   local badge = if big then nil else format_badge(s, "tidal-quality")
+   if badge then
+      table.insert(parts, badge)
    end
    local liked = shown("liked", track.liked) == true
    table.insert(parts, with(ui.text({ ui.span(if liked then "♥" else "♡") }), {
@@ -549,7 +556,7 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
 
    local body = with(ui.col({
       with(ui.row({
-         heading(block, s),
+         heading(block, s, big),
          with(ui.row(controls), { key = "controls", role = "tidal-controls" }),
       }), { key = "top", role = "tidal-top" }),
       timeline,
@@ -872,10 +879,15 @@ local function view(block: Block): BlockView
    end
    -- Docked with a big cover, it goes on top, as wide as the block.
    if s and big_cover(block, s) then
-      table.insert(parts, 1, with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), {
-         key = "art",
-         role = "tidal-art",
-      }))
+      -- The stream format sits on the cover's corner.
+      local art: { Node } = {
+         with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), { key = "image", role = "tidal-art-image" }),
+      }
+      local badge = format_badge(s, "tidal-art-badge")
+      if badge then
+         table.insert(art, badge)
+      end
+      table.insert(parts, 1, with(ui.col(art), { key = "art", role = "tidal-art" }))
    end
    local result: BlockView = { main = ui.col(parts) }
    if notice then

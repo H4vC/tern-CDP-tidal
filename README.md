@@ -42,7 +42,8 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 ## The player
 
 - **Title line:** title, then the artist and album (click either for the artist's top 20 tracks or
-  the album's tracks), the stream quality (LOSSLESS / HI-RES) and a heart to like the track.
+  the album's tracks), the stream format (e.g. `24-bit 48 kHz FLAC`, orange when hi-res) and a heart
+  to like the track. When the big docked cover shows, the format sits on its corner instead.
 - **Controls:** previous, play/pause, next, shuffle, repeat, track radio, lyrics, sleep timer
   (click to cycle 15 / 30 / 60 minutes / end of track / off), mute and volume.
 - **Progress bar:** click anywhere on it to seek.
