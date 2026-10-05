@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 14;
+	const VERSION = 15;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -204,11 +204,29 @@
 
 	const trackItem = (t) => ({ kind: 'track', id: String(t.id), title: titled(t), detail: artists(t), length_s: t.duration });
 
-	// The tracks an item adds to the queue: itself, or an album's tracks.
+	// Puts tracks (v1 API objects) into TIDAL's content store, as its own track fetch does. TIDAL can
+	// only play a queue entry whose track is there; its queue actions don't load tracks themselves.
+	const storeTracks = (tracks) => {
+		const known = store.getState().content.mediaItems;
+		for (const item of tracks) {
+			if (known[String(item.id)]) continue;
+			dispatch('content/LOAD_SINGLE_MEDIA_ITEM_SUCCESS', { mediaItem: { item: { ...item, contentType: 'track' }, type: 'track' } });
+		}
+	};
+
+	// Makes sure TIDAL has this track's details before it's played from the queue.
+	const ensureTrack = async (id) => {
+		if (!store.getState().content.mediaItems[String(id)]) storeTracks([await v1('tracks/' + id)]);
+	};
+
+	// The tracks an item adds to the queue (itself, or an album's tracks), stored so they can play.
 	const trackIds = async (kind, id) => {
-		if (kind === 'track') return [Number(id)];
-		if (kind === 'album') return (await v1('albums/' + id + '/tracks?limit=100')).items.map((t) => t.id);
-		throw new Error('Only tracks and albums can be queued');
+		let tracks;
+		if (kind === 'track') tracks = [await v1('tracks/' + id)];
+		else if (kind === 'album') tracks = (await v1('albums/' + id + '/tracks?limit=100')).items;
+		else throw new Error('Only tracks and albums can be queued');
+		storeTracks(tracks);
+		return tracks.map((t) => t.id);
 	};
 
 	const currentId = (s) => s.playbackControls.mediaProduct && s.playbackControls.mediaProduct.productId;
@@ -225,10 +243,7 @@
 		const items = (await v1('mixes/' + mixId + '/items?limit=100')).items || [];
 		const tracks = items.filter((i) => i.type === 'track' && i.item && i.item.allowStreaming !== false && String(i.item.id) !== String(current));
 		if (tracks.length === 0) throw new Error('TIDAL has no tracks in this radio');
-		// The mix answer already has the details the queue view needs; no lookups per track.
-		for (const { item } of tracks) {
-			looked.set(String(item.id), { title: titled(item), artist: artists(item), length_s: item.duration || null });
-		}
+		storeTracks(tracks.map((t) => t.item));
 		dispatch('playQueue/CLEAR_UPCOMING');
 		dispatch('playQueue/ADD_LAST', { context: { id: mixId, type: 'mix' }, mediaItemIds: tracks.map((t) => t.item.id) });
 		dispatch('playQueue/SET_SOURCE_PROPERTIES', {
@@ -285,6 +300,8 @@
 				const index = Number(arg);
 				const length = (s.playQueue.elements || []).length;
 				if (!Number.isInteger(index) || index < 0 || index >= length) throw new Error('No queue entry ' + arg);
+				// Entries added before tracks were stored on the way in can't play until their track is.
+				await ensureTrack(s.playQueue.elements[index].mediaItemId);
 				return dispatch('playQueue/MOVE_TO', index);
 			}
 			case 'remove': {
