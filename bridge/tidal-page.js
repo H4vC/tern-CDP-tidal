@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 15;
+	const VERSION = 16;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -46,30 +46,53 @@
 		return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : null;
 	};
 
-	// Details of tracks put in the queue that TIDAL itself never loaded (from search, say), looked up
-	// once each: id → { title, artist, length_s }, or 'pending'.
-	const looked = new Map();
+	// Queue entries whose track TIDAL never stored (added by older versions of this plugin, say) can't
+	// play and don't show in TIDAL's own queue. Their tracks are fetched, a few at a time, and stored
+	// the way TIDAL stores its own; a track that fails to fetch isn't asked for again.
+	const FETCH_AT_ONCE = 4;
+	const wanted = [];
+	const asked = new Set();
+	let fetching = 0;
 
-	const lookUp = (id) => {
-		if (looked.has(id)) return;
-		looked.set(id, 'pending');
-		v1('tracks/' + id)
-			.then((t) => looked.set(id, { title: titled(t), artist: artists(t), length_s: t.duration || null }))
-			.catch(() => looked.delete(id))
-			.then(() => window.__ternTidalEmit && window.__ternTidalEmit());
+	const pump = () => {
+		while (fetching < FETCH_AT_ONCE && wanted.length > 0) {
+			const id = wanted.shift();
+			fetching++;
+			v1('tracks/' + id)
+				.then((t) => storeTracks([t]))
+				.catch(() => {})
+				.then(() => {
+					fetching--;
+					pump();
+					if (window.__ternTidalEmit) window.__ternTidalEmit();
+				});
+		}
 	};
 
-	// A queued track's details: from the classic catalog when TIDAL loaded them there, else from the
-	// open-API entities (title and length only), else looked up (null until the answer arrives).
+	const fetchTrack = (id) => {
+		if (asked.has(id)) return;
+		asked.add(id);
+		wanted.push(id);
+		pump();
+	};
+
+	// Asks for every queue entry's track that TIDAL hasn't stored.
+	const fillQueue = (s) => {
+		const known = s.content.mediaItems;
+		for (const element of s.playQueue.elements || []) {
+			const id = String(element.mediaItemId);
+			if (!known[id]) fetchTrack(id);
+		}
+	};
+
+	// A queued track's details: from TIDAL's store, else from the open-API entities (title and length
+	// only), else null until it's fetched (see `fillQueue`).
 	const queuedTrack = (s, id) => {
 		const item = s.content.mediaItems[id] && s.content.mediaItems[id].item;
 		if (item) return { title: titled(item), artist: artists(item), length_s: item.duration || null };
 		const tracks = s.entities.tracks && s.entities.tracks.entities;
 		const entity = tracks && tracks[id] && tracks[id].attributes;
 		if (entity) return { title: titled(entity), artist: '', length_s: isoSeconds(entity.duration) };
-		const known = looked.get(id);
-		if (known && known !== 'pending') return known;
-		lookUp(id);
 		return null;
 	};
 
@@ -86,6 +109,7 @@
 
 	// The queue around the current track: a couple already played, then what comes up.
 	const queueWindow = (s) => {
+		fillQueue(s);
 		const queue = s.playQueue;
 		const elements = queue.elements || [];
 		const from = Math.max(0, queue.currentIndex - QUEUE_BEFORE);
