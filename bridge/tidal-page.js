@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 13;
+	const VERSION = 14;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -331,8 +331,17 @@
 			}
 			case 'play': {
 				// `<kind> <id>` from a search result or list; the same actions TIDAL's own search uses.
+				// Either way the queue starts over: nothing from before stays after the new item.
 				if (!second) throw new Error('Bad item ' + arg);
-				if (first === 'track') return dispatch('content/FETCH_AND_PLAY_MEDIA_ITEM', { itemId: second, itemType: 'track', sourceContext: { type: 'search' } });
+				if (first === 'track') {
+					// TIDAL's track play keeps entries you added (play next / add to queue) after the new
+					// song. Clearing first makes the new song the whole queue; it's checked first so a song
+					// that can't play doesn't cost you the queue.
+					const track = await v1('tracks/' + second);
+					if (track.allowStreaming === false) throw new Error("TIDAL can't play this track");
+					dispatch('playQueue/CLEAR_UPCOMING');
+					return dispatch('content/FETCH_AND_PLAY_MEDIA_ITEM', { itemId: second, itemType: 'track', sourceContext: { type: 'search' } });
+				}
 				if (first !== 'album' && first !== 'playlist' && first !== 'artist') throw new Error('Bad item ' + arg);
 				return dispatch('playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE', {
 					clearActives: true,
