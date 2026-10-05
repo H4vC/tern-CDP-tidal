@@ -46,23 +46,41 @@ function log(message) {
 	} catch {}
 }
 
-// One bridge per data directory; a lock whose owner died is taken over.
+// One bridge per data directory, however many Tern windows start one: the pid file is created
+// exclusively, so of bridges racing to start exactly one wins. A file left by a bridge that died
+// is taken over.
 function lock() {
 	const file = path.join(data, 'bridge.pid');
-	try {
-		const pid = Number(fs.readFileSync(file, 'utf8'));
-		if (pid && pid !== process.pid) {
-			process.kill(pid, 0); // throws when it's gone
-			return false;
-		}
-	} catch {}
-	fs.writeFileSync(file, String(process.pid));
-	process.on('exit', () => {
+	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
-			if (Number(fs.readFileSync(file, 'utf8')) === process.pid) fs.unlinkSync(file);
+			fs.writeFileSync(file, String(process.pid), { flag: 'wx' });
+			process.on('exit', () => {
+				try {
+					if (Number(fs.readFileSync(file, 'utf8')) === process.pid) fs.unlinkSync(file);
+				} catch {}
+			});
+			return true;
+		} catch (error) {
+			if (error.code !== 'EEXIST') throw error;
+		}
+		let owner = 0;
+		try {
+			owner = Number(fs.readFileSync(file, 'utf8'));
 		} catch {}
-	});
-	return true;
+		if (owner && owner !== process.pid) {
+			try {
+				process.kill(owner, 0); // throws when it's gone
+				return false;
+			} catch (error) {
+				if (error.code === 'EPERM') return false; // alive, someone else's
+			}
+		}
+		// Stale or unreadable (another bridge mid-write would have won `wx` already): take it over.
+		try {
+			fs.unlinkSync(file);
+		} catch {}
+	}
+	return false;
 }
 
 // ---- The app's processes -------------------------------------------------------------------
@@ -301,7 +319,17 @@ function publish() {
 		let position = s.time_s * 1000 + (playing && s.synced_at ? Date.now() - s.synced_at : 0);
 		if (track.length_ms) position = Math.min(position, track.length_ms);
 		Object.assign(snap, {
-			track: { title: track.title, artist: track.artist, album: track.album, length_ms: track.length_ms || undefined },
+			track: {
+				id: track.id,
+				title: track.title,
+				artist: track.artist,
+				album: track.album,
+				length_ms: track.length_ms || undefined,
+				artist_id: track.artist_id || undefined,
+				album_id: track.album_id || undefined,
+				color: track.color || undefined,
+				liked: !!track.liked,
+			},
 			playing,
 			position_ms: Math.max(0, Math.round(position)),
 			timeline,
@@ -325,6 +353,7 @@ function publish() {
 		snap.can = { toggle: false, next: false, prev: false, seek: false, shuffle: false, repeat: false, volume: false };
 	}
 	if (reply) snap.reply = reply;
+	if (sleepTimer) snap.sleep = sleepTimer.at ? { at_s: Math.round(sleepTimer.at / 1000) } : { end_of_track: true };
 
 	// Position moves every write; compare without it.
 	const body = JSON.stringify({ ...snap, position_ms: undefined });
@@ -345,6 +374,7 @@ async function command(op, arg) {
 	const result = await send('Runtime.evaluate', {
 		expression: 'window.__ternTidalCommand(' + JSON.stringify(op) + ', ' + JSON.stringify(arg) + ')',
 		returnByValue: true,
+		awaitPromise: true,
 	});
 	if (result.exceptionDetails) throw new Error(errorText(result.exceptionDetails));
 }
@@ -354,24 +384,68 @@ function errorText(details) {
 	return (ex && ex.description ? ex.description.split('\n')[0] : details.text).replace(/^Error: /, '');
 }
 
-// Results go to search.json, not the snapshot, which is rewritten every second.
-async function search(id, query) {
-	const out = { id, query };
+function writeJson(name, value) {
+	const target = path.join(data, name);
+	fs.writeFileSync(target + '.tmp', JSON.stringify(value));
+	fs.renameSync(target + '.tmp', target);
+}
+
+// Runs one of the page's async lookups. The answer goes to a file of its own, not the snapshot,
+// which is rewritten every second.
+async function lookup(file, out, expression, field) {
 	try {
-		const result = await send('Runtime.evaluate', {
-			expression: 'window.__ternTidalSearch(' + JSON.stringify(query) + ')',
-			returnByValue: true,
-			awaitPromise: true,
-		});
+		const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
 		if (result.exceptionDetails) out.error = errorText(result.exceptionDetails);
-		else out.items = result.result.value;
+		else Object.assign(out, field ? { [field]: result.result.value } : result.result.value);
 	} catch (error) {
 		out.error = error.message;
 	}
-	const target = path.join(data, 'search.json');
-	fs.writeFileSync(target + '.tmp', JSON.stringify(out));
-	fs.renameSync(target + '.tmp', target);
-	if (out.error) throw new Error(out.error);
+	writeJson(file, out);
+}
+
+// Searches and artist/album lists share search.json: the plugin shows either in the same panel.
+const search = (id, query) => lookup('search.json', { id, query }, 'window.__ternTidalSearch(' + JSON.stringify(query) + ')', 'items');
+
+function list(id, arg) {
+	const [kind, itemId] = arg.split(' ');
+	return lookup('search.json', { id, query: '', list: { kind, id: itemId } },
+		'window.__ternTidalList(' + JSON.stringify(kind) + ', ' + JSON.stringify(itemId) + ')');
+}
+
+const lyrics = (id, trackId) => lookup('lyrics.json', { id, track: trackId }, 'window.__ternTidalLyrics(' + JSON.stringify(trackId) + ')');
+
+// ---- Sleep timer ---------------------------------------------------------------------------
+
+// { at } (wall-clock ms) or { track } (pause when this track ends); null when off.
+let sleepTimer = null;
+
+function setSleep(arg) {
+	if (arg === 'off') sleepTimer = null;
+	else if (arg === 'track') {
+		if (!state || !state.track) throw new Error('Nothing is playing');
+		sleepTimer = { track: state.track.id };
+	} else {
+		const minutes = Number(arg);
+		if (!(minutes > 0)) throw new Error('Bad sleep time ' + arg);
+		sleepTimer = { at: Date.now() + minutes * 60000 };
+	}
+}
+
+// Pauses when the timer runs out, or as the watched track ends (before the next one starts).
+function checkSleep() {
+	if (!sleepTimer || !state || !state.track) return;
+	const playing = state.state === 'PLAYING';
+	let due = false;
+	if (sleepTimer.at) due = Date.now() >= sleepTimer.at;
+	else if (state.track.id !== sleepTimer.track) due = true; // it already moved on
+	else if (playing && state.track.length_ms) {
+		const position = state.time_s * 1000 + (state.synced_at ? Date.now() - state.synced_at : 0);
+		due = state.track.length_ms - position < 400;
+	}
+	if (!due) return;
+	sleepTimer = null;
+	if (playing) command('pause', '').catch((error) => log('sleep timer: ' + error.message));
+	publish();
 }
 
 async function execute(id, op, arg) {
@@ -381,10 +455,11 @@ async function execute(id, op, arg) {
 		return launch();
 	}
 	if (op === 'relaunch') return relaunch();
+	if (op === 'sleep') return setSleep(arg);
 	if (!ws) throw new Error(checkApp(true) ? 'TIDAL is restarting with remote control' : "TIDAL isn't running");
-	// Searches run alongside other commands; the plugin orders their answers.
-	if (op === 'search') {
-		search(id, arg).catch(() => {}); // the error goes to search.json
+	// Lookups run alongside other commands; the plugin orders their answers.
+	if (op === 'search' || op === 'list' || op === 'lyrics') {
+		(op === 'search' ? search(id, arg) : op === 'list' ? list(id, arg) : lyrics(id, arg)).catch(() => {});
 		return;
 	}
 	return command(op, arg);
@@ -461,6 +536,7 @@ try {
 } catch {} // the poll below still picks commands up
 
 setInterval(() => drainInbox(), 250);
+setInterval(checkSleep, 200);
 setInterval(() => {
 	if (Date.now() - started > ORPHAN_AFTER_S * 1000 && pluginAgeS() > ORPHAN_AFTER_S) process.exit(0);
 	if (!ws) {

@@ -51,6 +51,12 @@ local notice: { text: string, expires: number }? = nil
 local senders: { [string]: number } = {}
 local answered: string? = nil
 
+-- The current track's lyrics, fetched once per track while lyrics are shown. `lines` are synced
+-- (`ms` from the start), `text` is plain.
+type Lyrics = { track: string, waiting: string?, lines: { { ms: number, text: string } }?, text: string?, error: string? }
+local lyrics: Lyrics? = nil
+local LYRICS_FILE = tern.plugin.data .. (if tern.runtime.os == "windows" then "\\" else "/") .. "lyrics.json"
+
 -- State ---------------------------------------------------------------------------------------
 
 -- A field as the view should show it: what a control just asked for until the bridge agrees.
@@ -244,6 +250,47 @@ local function toggle_mute(block: Block)
    send(block, "mute", if on then "on" else "off")
 end
 
+local function like(block: Block)
+   local s = snap
+   if s == nil or s.track == nil then
+      return
+   end
+   local liked = not shown("liked", s.track.liked)
+   expect("liked", liked)
+   send(block, "like")
+   say(if liked then "Added to your collection" else "Removed from your collection")
+end
+
+local function open_list(block: Block, kind: string, id: string?)
+   if id == nil then
+      say("TIDAL didn't say which " .. kind .. " this is")
+      return
+   end
+   block.search = search.open_list(block.search, kind, id, function(op, arg)
+      return send(block, op, arg)
+   end)
+end
+
+local function cycle_sleep(block: Block)
+   local s = snap
+   local now: string = "off"
+   if s and s.sleep then
+      now = if s.sleep.end_of_track then "track" else "on"
+   end
+   -- From off: 15 min. From a timer: the next step. From end of track: off.
+   local step = "15"
+   if now == "track" then
+      step = "off"
+   elseif now == "on" and s and s.sleep and s.sleep.at_s then
+      local left = (s.sleep.at_s - os.time()) / 60
+      step = if left > 45 then "track" elseif left > 22 then "60" else "30"
+   end
+   send(block, "sleep", step)
+   say(if step == "off" then "Sleep timer off"
+      elseif step == "track" then "Pausing at the end of this track"
+      else "Pausing in " .. step .. " minutes")
+end
+
 local function act(block: Block, name: string)
    if name == "playpause" then
       toggle(block)
@@ -264,6 +311,28 @@ local function act(block: Block, name: string)
       local louder = name == "louder"
       local step = if (if louder then level < FINE_VOLUME_BELOW else level <= FINE_VOLUME_BELOW) then 1 else VOLUME_STEP
       set_volume(block, level + (if louder then step else -step))
+   elseif name == "like" then
+      like(block)
+   elseif name == "lyrics" then
+      link.set_setting("lyrics", not link.setting("lyrics"))
+   elseif name == "sleep" then
+      cycle_sleep(block)
+   elseif name == "artist" then
+      open_list(block, "artist", snap and snap.track and snap.track.artist_id)
+   elseif name == "album" then
+      open_list(block, "album", snap and snap.track and snap.track.album_id)
+   elseif name == "playall" or name == "artistradio" then
+      local list = block.search and block.search.list
+      if list then
+         if name == "playall" then
+            send(block, "play", list.kind .. " " .. list.id)
+         else
+            send(block, "artist-radio", list.id)
+         end
+         block.search = nil
+      end
+   elseif name == "closesearch" then
+      block.search = nil
    elseif name == "launch" or name == "relaunch" then
       send(block, name)
    elseif name == "search" then
@@ -274,9 +343,15 @@ local function act(block: Block, name: string)
    end
 end
 
-local function play_item(block: Block, item: search.Item)
-   send(block, "play", item.kind .. " " .. item.id)
-   block.search = nil
+-- Plays a search or list item, or puts it in the queue.
+local function pick(block: Block, choice: search.Pick)
+   local item = choice.item
+   send(block, choice.op, item.kind .. " " .. item.id)
+   if choice.op == "play" then
+      block.search = nil
+   else
+      say((if choice.op == "queue-next" then "Plays next: " else "Added to the queue: ") .. item.title)
+   end
 end
 
 -- View ------------------------------------------------------------------------------------------
@@ -366,13 +441,61 @@ local function seek_bar(block: Block, s: Snapshot, fraction: number): Node
    return with(ui.row(cells), { key = "bar", role = "tidal-seek" })
 end
 
+local QUALITY = { HI_RES_LOSSLESS = "HI-RES", HI_RES = "MQA", LOSSLESS = "LOSSLESS" }
+
+-- Title, then artist and album you can click for their track lists, the stream quality and the heart.
+local function heading(block: Block, s: Snapshot): Node
+   local track = s.track :: link.Track
+   local parts: { Node } = {
+      mark_node(block, "mark") or ui.text(""),
+      with(ui.text({ ui.span(track.title, "strong") }), { key = "title", role = "tidal-line tidal-title" }),
+   }
+   if track.artist ~= "" then
+      table.insert(parts, with(ui.text({ ui.span("· " .. track.artist, "muted") }), {
+         key = "artist",
+         role = "tidal-name",
+         actions = if track.artist_id then { click = "artist" } else nil,
+      }))
+   end
+   if track.album ~= "" then
+      table.insert(parts, with(ui.text({ ui.span("· " .. track.album, "dim") }), {
+         key = "album",
+         role = "tidal-name tidal-album",
+         actions = if track.album_id then { click = "album" } else nil,
+      }))
+   end
+   local quality = s.quality and QUALITY[s.quality]
+   if quality then
+      table.insert(parts, with(ui.badge(quality, if quality == "HI-RES" then "accent" else "muted"), {
+         key = "quality",
+         role = "tidal-quality",
+      }))
+   end
+   local liked = shown("liked", track.liked) == true
+   table.insert(parts, with(ui.text({ ui.span(if liked then "♥" else "♡") }), {
+      key = "like",
+      role = "tidal-heart",
+      tone = if liked then "accent" else nil,
+      actions = { click = "like" },
+   }))
+   return with(ui.row(parts), { key = "heading", role = "tidal-heading" })
+end
+
+-- Minutes left on the sleep timer, or "end" when it waits for the track to end.
+local function sleep_label(s: Snapshot): string?
+   local sleep = s.sleep
+   if sleep == nil then
+      return nil
+   end
+   if sleep.end_of_track then
+      return "end"
+   end
+   return tostring(math.max(1, math.ceil(((sleep.at_s or os.time()) - os.time()) / 60))) .. "m"
+end
+
 -- Two lines beside the cover: title and controls, then the timeline.
 local function now_playing(block: Block, s: Snapshot): Node
    local track = s.track :: link.Track
-   local label: { Span } = { ui.span(track.title, "strong") }
-   if track.artist ~= "" then
-      table.insert(label, ui.span(" · " .. track.artist, "muted"))
-   end
 
    -- Controls TIDAL doesn't offer here are left out rather than greyed.
    local controls: { Node } = {
@@ -390,6 +513,12 @@ local function now_playing(block: Block, s: Snapshot): Node
    end
    -- Starts the current track's radio, replacing the queue.
    table.insert(controls, button("radio", "broadcast", "radio", true))
+   table.insert(controls, button("lyrics", "text-quote", "lyrics", true, link.setting("lyrics")))
+   table.insert(controls, button("sleep", "moon", "sleep", true, s.sleep ~= nil))
+   local sleeping = sleep_label(s)
+   if sleeping then
+      table.insert(controls, with(ui.text({ ui.span(sleeping, "muted") }), { key = "sleepleft", role = "tidal-level" }))
+   end
    local level = shown("volume", s.volume)
    if s.can.volume and level then
       local muted = shown("muted", s.muted) == true
@@ -419,10 +548,7 @@ local function now_playing(block: Block, s: Snapshot): Node
       cover_node(block, s),
       with(ui.col({
          with(ui.row({
-            with(ui.row({
-               mark_node(block, "mark") or ui.text(""),
-               with(ui.text(label), { key = "label", role = "tidal-line" }),
-            }), { key = "heading", role = "tidal-heading" }),
+            heading(block, s),
             with(ui.row(controls), { key = "controls", role = "tidal-controls" }),
          }), { key = "top", role = "tidal-top" }),
          timeline,
@@ -503,25 +629,55 @@ local function glance_view(block: Block, s: Snapshot): Node
       table.insert(lines, line("next", { ui.span("last in the queue", "dim") }))
    end
 
+   -- A taller card (Tern's floating size varies) fills its extra rows with what plays after that.
+   local queue = s.queue
+   local spare = block.cx.rows - #lines - 1
+   if queue and next_track and spare > 0 then
+      local from = queue.current + 3 -- 1-based: current is current + 1, next is current + 2
+      for i = from, math.min(#queue.items, from + spare - 1) do
+         local item = queue.items[i]
+         table.insert(lines, line("then" .. i, {
+            ui.span("then ", "dim"),
+            ui.span(item.title or "…", "muted"),
+            ui.span(if item.artist ~= "" then " · " .. item.artist else "", "dim"),
+         }))
+      end
+   end
+
    return with(ui.row({
       cover_node(block, s),
       with(ui.col(lines), { key = "body", role = "tidal-body" }),
    }), { key = "glance", role = "tidal-player tidal-glance" })
 end
 
--- Rows the block spends on things other than the queue: the two-line player, the queue heading
--- and some air.
-local QUEUE_CHROME_ROWS = 5
+-- Rows the block spends on things other than the list below the player: the two-line player, the
+-- list heading and some air.
+local PANEL_CHROME_ROWS = 5
 
--- The queue around the current track, one line each, the current one highlighted. Shown when the
--- player is its own block (not floating).
+-- Rows left for the list under the player: whatever height Tern gives the block (docked, or a
+-- focused floating card of any size), so the list fills it.
+local function panel_rows(block: Block): number
+   local rows = block.cx.rows - PANEL_CHROME_ROWS
+   if block.search then
+      rows -= 1 -- the search line
+   end
+   return math.max(0, rows)
+end
+
+local function row_button(key: string, label: string, action: string): Node
+   return with(ui.text({ ui.span(label) }), { key = key, role = "tidal-row-button", actions = { click = action } })
+end
+
+-- The queue around the current track, one line each, the current one highlighted; it scrolls to
+-- keep the current track near the top. Clicking a line plays it; ↑ ↓ ✕ move or drop it.
 local function queue_view(block: Block, s: Snapshot): Node?
    local queue = s.queue
    if queue == nil or #queue.items == 0 then
       return nil
    end
-   local room = math.max(3, block.cx.rows - QUEUE_CHROME_ROWS)
    local current = queue.current + 1
+   local room = panel_rows(block)
+   local last = math.min(#queue.items, room)
    local lines: { Node } = {
       with(ui.text({
          ui.span("Queue", "strong"),
@@ -529,7 +685,11 @@ local function queue_view(block: Block, s: Snapshot): Node?
          ui.span(if s.source then "  · " .. (s.source :: string) else "", "dim"),
       }), { key = "heading", role = "tidal-line tidal-queue-heading" }),
    }
-   for i = 1, math.min(#queue.items, room) do
+   -- The entry's index in the whole queue.
+   local function index_of(i: number): number
+      return queue.position - queue.current + i - 1
+   end
+   for i = 1, last do
       local item = queue.items[i]
       local is_current = i == current
       local spans: { Span } = {
@@ -542,15 +702,95 @@ local function queue_view(block: Block, s: Snapshot): Node?
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
-      table.insert(lines, with(ui.text(spans), {
-         key = "q" .. i,
-         role = if is_current then "tidal-line tidal-queue-item tidal-selected" else "tidal-line tidal-queue-item tidal-result",
+      local row: { Node } = {
+         with(ui.text(spans), {
+            key = "label",
+            role = "tidal-line tidal-row-label",
+            actions = if is_current then nil else { click = "jump=" .. tostring(index_of(i)) },
+         }),
+      }
+      if i > current then
+         -- Upcoming entries can be reordered among themselves or dropped.
+         if i > current + 1 then
+            table.insert(row, row_button("up", "↑", "qmove=" .. tostring(index_of(i)) .. ":" .. tostring(index_of(i) - 1)))
+         end
+         if index_of(i) + 1 < queue.total then
+            table.insert(row, row_button("down", "↓", "qmove=" .. tostring(index_of(i)) .. ":" .. tostring(index_of(i) + 1)))
+         end
+         table.insert(row, row_button("remove", "✕", "qremove=" .. tostring(i)))
+      end
+      table.insert(lines, with(ui.row(row), {
+         key = item.uid or ("q" .. i),
+         role = if is_current then "tidal-row tidal-selected" else "tidal-row tidal-result",
          tone = if is_current then "accent" else nil,
-         -- The entry's index in the whole queue: clicking plays it right away.
-         actions = if is_current then nil else { click = "jump=" .. tostring(queue.position - queue.current + i - 1) },
+      }))
+   end
+   local hidden = queue.total - (queue.position - queue.current) - last
+   if hidden > 0 then
+      table.insert(lines, with(ui.text({ ui.span(string.format("  +%d more", hidden), "dim") }), {
+         key = "more",
+         role = "tidal-line",
       }))
    end
    return with(ui.col(lines), { key = "queue", role = "tidal-search tidal-queue" })
+end
+
+-- The current track's lyrics. Synced lyrics follow the song: the current line highlighted, the
+-- block's rows centred on it; plain lyrics show from the top.
+local function lyrics_view(block: Block, s: Snapshot): Node
+   local room = panel_rows(block)
+   local track = s.track :: link.Track
+   local l = lyrics
+   local lines: { Node } = {
+      with(ui.text({ ui.span("Lyrics", "strong"), ui.span("  " .. track.title, "dim") }), {
+         key = "heading",
+         role = "tidal-line tidal-queue-heading",
+      }),
+   }
+   local function note(text: string)
+      table.insert(lines, with(ui.text({ ui.span("  " .. text, "dim") }), { key = "note", role = "tidal-line" }))
+   end
+   if l == nil or l.track ~= track.id or l.waiting then
+      note("loading…")
+   elseif l.error then
+      note(l.error)
+   elseif l.lines then
+      local synced = l.lines :: { { ms: number, text: string } }
+      local pos = position()
+      local now = 0
+      for i, line in synced do
+         if line.ms <= pos then
+            now = i
+         else
+            break
+         end
+      end
+      local first = math.clamp(now - math.floor(room / 3), 1, math.max(1, #synced - room + 1))
+      for i = first, math.min(#synced, first + room - 1) do
+         local line = synced[i]
+         local text = if line.text == "" then "♪" else line.text
+         table.insert(lines, with(ui.text({ ui.span(text, if i == now then "strong" elseif i < now then "dim" else nil) }), {
+            key = "l" .. i,
+            role = if i == now then "tidal-line tidal-lyric tidal-selected" else "tidal-line tidal-lyric",
+            tone = if i == now then "accent" else nil,
+            -- Clicking a line goes to it.
+            actions = { click = "lyricseek=" .. tostring(line.ms) },
+         }))
+      end
+   elseif l.text then
+      local count = 0
+      for line in string.gmatch((l.text :: string) .. "\n", "([^\n]*)\n") do
+         count += 1
+         if count > room then
+            note("…")
+            break
+         end
+         table.insert(lines, with(ui.text({ ui.span(if line == "" then " " else line) }), { key = "l" .. count, role = "tidal-line tidal-lyric" }))
+      end
+   else
+      note("TIDAL has no lyrics for this track")
+   end
+   return with(ui.col(lines), { key = "lyrics", role = "tidal-search tidal-queue" })
 end
 
 local function view(block: Block): BlockView
@@ -578,14 +818,18 @@ local function view(block: Block): BlockView
    local st = block.search
    local parts: { Node } = { main }
    if st then
-      table.insert(parts, search.view(st))
+      table.insert(parts, search.view(st, panel_rows(block)))
    end
-   -- Results take the space while there are any; otherwise a docked player lists the queue.
-   local searching = st ~= nil and (#st.items > 0 or st.waiting ~= nil)
-   if not searching and not block.floating and s and s.track then
-      local queue = queue_view(block, s)
-      if queue then
-         table.insert(parts, queue)
+   -- Results or a list take the space while there are any; otherwise the player shows the lyrics or
+   -- the queue in whatever rows are left, docked or floating.
+   if not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
+      if link.setting("lyrics") then
+         table.insert(parts, lyrics_view(block, s))
+      else
+         local queue = queue_view(block, s)
+         if queue then
+            table.insert(parts, queue)
+         end
       end
    end
    local result: BlockView = { main = ui.col(parts) }
@@ -595,10 +839,51 @@ local function view(block: Block): BlockView
    return result
 end
 
+-- Fetches the current track's lyrics while lyrics are shown, and picks up the answer.
+local function update_lyrics()
+   local s = snap
+   if not link.setting("lyrics") or s == nil or s.track == nil or s.track.id == nil then
+      return
+   end
+   local id = s.track.id :: string
+   local l = lyrics
+   if l == nil or l.track ~= id then
+      local _, block = next(blocks)
+      if block == nil then
+         return
+      end
+      lyrics = { track = id, waiting = send(block :: Block, "lyrics", id) }
+      return
+   end
+   if l.waiting == nil then
+      return
+   end
+   local ok, text = pcall(tern.fs.read, LYRICS_FILE, 1024 * 1024)
+   if not ok then
+      return
+   end
+   local decoded, answer = pcall(tern.json.decode, text)
+   if not decoded or type(answer) ~= "table" or answer.id ~= l.waiting then
+      return
+   end
+   l.waiting = nil
+   l.error = answer.error
+   l.lines = if answer.lines and #answer.lines > 0 then answer.lines else nil
+   l.text = answer.text
+end
+
 -- What the view depends on; panes re-render only when it changes.
 local function signature(): string
    local s = snap
    local parts = { if notice then notice.text else "", bridge_problem or "", tostring(playing()) }
+   table.insert(parts, tostring(link.setting("lyrics")))
+   local l = lyrics
+   if l then
+      table.insert(parts, l.track .. tostring(l.waiting) .. tostring(l.error) .. tostring(l.lines ~= nil))
+   end
+   if s and s.sleep and s.sleep.at_s then
+      table.insert(parts, tostring((s.sleep.at_s - os.time()) // 60))
+   end
    if s then
       local beat = s.beat
       s.beat = 0
@@ -641,6 +926,7 @@ local function tick()
       load_cover(latest)
       take_reply(latest)
    end
+   update_lyrics()
    if notice and tern.now() > notice.expires then
       notice = nil
    end
@@ -668,7 +954,7 @@ local function tick()
          -- Focusing the player opens search; leaving it closes an untouched one.
          if pane_view.focused then
             block.search = block.search or search.open()
-         elseif block.search and block.search.query == "" then
+         elseif block.search and block.search.query == "" and block.search.list == nil then
             block.search = nil
          end
          block.signature = ""
@@ -730,16 +1016,13 @@ tern.block.define("player", {
    end,
 
    key = function(block: Block, key: Key, _cx: BlockCx): boolean?
-      if key.ctrl or key.alt or key.meta then
-         return false
-      end
       local st = block.search
       if st then
          local result = search.key(st, key)
          if result == "close" then
             block.search = nil
          elseif type(result) == "table" then
-            play_item(block, result :: search.Item)
+            pick(block, result :: search.Pick)
          end
          -- Search opens with focus, so keys it leaves alone (space on an empty query, ←→) still
          -- drive the player.
@@ -747,6 +1030,9 @@ tern.block.define("player", {
             block.signature = ""
             return true
          end
+      end
+      if key.ctrl or key.alt or key.meta then
+         return false
       end
       local s = snap
       local typed = key.text or key.name
@@ -775,6 +1061,16 @@ tern.block.define("player", {
          act(block, "quieter")
       elseif typed == "m" then
          act(block, "mute")
+      elseif typed == "l" then
+         act(block, "like")
+      elseif typed == "y" then
+         act(block, "lyrics")
+      elseif typed == "a" then
+         act(block, "artist")
+      elseif typed == "b" then
+         act(block, "album")
+      elseif typed == "t" then
+         act(block, "sleep")
       elseif typed == "o" then
          act(block, "launch")
       elseif string.match(typed, "^%d$") and s and s.track and s.track.length_ms then
@@ -786,24 +1082,41 @@ tern.block.define("player", {
    end,
 
    event = function(block: Block, ev: UiEvent, _cx: BlockCx)
-      if ev.ev == "action" and type(ev.act) == "string" then
-         local st = block.search
-         local index = tonumber(ev.value)
-         if ev.act == "pick" and st and index and st.items[index] then
-            play_item(block, st.items[index])
-         elseif ev.act == "jump" and index then
-            send(block, "jump", index)
-         elseif ev.act == "seekto" and index then
-            local length = snap and snap.track and snap.track.length_ms
-            if length then
-               -- The cell's middle, so the first and last cells aren't 0 % and 100 % exactly.
-               local count = math.clamp(block.cx.cols - 24, 16, 160)
-               seek(block, (index - 0.5) / count * length)
-            end
-         else
-            act(block, ev.act)
-         end
-         block.signature = ""
+      if ev.ev ~= "action" or type(ev.act) ~= "string" then
+         return
       end
+      local st = block.search
+      local value = ev.value
+      local index = tonumber(value)
+      local item = st and index and st.items[index]
+      if ev.act == "pick" and item then
+         pick(block, { op = "play", item = item })
+      elseif (ev.act == "qnext" or ev.act == "qlast") and item then
+         pick(block, { op = if ev.act == "qnext" then "queue-next" else "queue-last", item = item })
+      elseif ev.act == "jump" and index then
+         send(block, "jump", index)
+      elseif ev.act == "qmove" and type(value) == "string" then
+         local from, to = string.match(value, "^(%d+):(%d+)$")
+         if from and to then
+            send(block, "move", from .. " " .. to)
+         end
+      elseif ev.act == "qremove" and index then
+         local entry = snap and snap.queue and snap.queue.items[index]
+         if entry then
+            send(block, "remove", entry.uid)
+         end
+      elseif ev.act == "lyricseek" and index then
+         seek(block, index)
+      elseif ev.act == "seekto" and index then
+         local length = snap and snap.track and snap.track.length_ms
+         if length then
+            -- The cell's middle, so the first and last cells aren't 0 % and 100 % exactly.
+            local count = math.clamp(block.cx.cols - 24, 16, 160)
+            seek(block, (index - 0.5) / count * length)
+         end
+      else
+         act(block, ev.act)
+      end
+      block.signature = ""
    end,
 })

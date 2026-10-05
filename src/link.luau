@@ -11,20 +11,43 @@
 --   alive           plugin → bridge  Unix seconds of the plugin's last check-in. The bridge exits
 --                                     once it is 30 s old.
 --
--- Ops: toggle, next, prev, seek <ms>, shuffle on|off, repeat off|all|one, volume <0-100>,
--- mute on|off, play <track|album|artist|playlist> <id>, search <query> (results go to
--- search.json as {id, query, items|error}), launch (start TIDAL with remote control), relaunch
--- (restart it with remote control, resuming playback). The bridge also restarts TIDAL by itself
--- when it finds it running without remote control.
+-- Ops: toggle, pause, next, prev, seek <ms>, shuffle on|off, repeat off|all|one, volume <0-100>,
+-- mute on|off, like (current track), radio (current track's), artist-radio <artist id>,
+-- play <track|album|artist|playlist> <id>, queue-next|queue-last <track|album> <id>,
+-- jump <queue index>, move <from> <to>, remove <queue uid>, sleep <minutes|track|off>,
+-- search <query> and list <artist|album> <id> (answers go to search.json as {id, query, list?,
+-- title?, subtitle?, items|error}), lyrics <track id> (to lyrics.json as {id, track, lines|text}),
+-- launch (start TIDAL with remote control), relaunch (restart it with remote control, resuming
+-- playback). The bridge also restarts TIDAL by itself when it finds it running without remote
+-- control.
 
 local link = {}
 
 export type Track = {
+   id: string?,
    title: string,
    artist: string,
    album: string,
    length_ms: number?,
+   -- For the artist and album lists.
+   artist_id: string?,
+   album_id: string?,
+   -- The album's accent colour ("#b0bad9"), tinting the player.
+   color: string?,
+   -- In your collection.
+   liked: boolean,
 }
+
+-- User settings shared by the window half (palette commands) and the host half (the block), in the
+-- plugin's kv store: `lyrics` (show lyrics instead of the queue), `notify` (toast on track change).
+function link.setting(name: string): boolean
+   local ok, value = pcall(tern.kv.get, "setting:" .. name)
+   return ok and value == true
+end
+
+function link.set_setting(name: string, value: boolean)
+   pcall(tern.kv.set, "setting:" .. name, value)
+end
 
 export type Snapshot = {
    v: number,
@@ -71,9 +94,12 @@ export type Snapshot = {
       current: number,
       position: number,
       total: number,
-      items: { { title: string?, artist: string, length_s: number? } },
+      -- `uid` names the entry for remove; titles are nil until TIDAL loads them.
+      items: { { uid: string, title: string?, artist: string, length_s: number? } },
    }?,
    reply: { id: string, error: string? }?,
+   -- The sleep timer: pauses at `at_s` (unix seconds), or when the current track ends.
+   sleep: { at_s: number?, end_of_track: boolean? }?,
 }
 
 local DATA = tern.plugin.data

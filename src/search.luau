@@ -1,7 +1,8 @@
 --!strict
--- Search in the player block: a query line and one line per result. Results follow the typing from
--- the third character on; ↑↓ pick, Enter plays, Esc closes. The bridge runs TIDAL's own search
--- inside the app and writes the results to search.json.
+-- The panel under the player: a search (results follow the typing from the third character on) or
+-- an artist's top tracks / an album's tracks. One line per item; ↑↓ pick, Enter plays,
+-- Shift+Enter plays next, Ctrl+Enter adds to the end of the queue, Esc closes. The bridge looks
+-- things up inside TIDAL and writes the answers to search.json.
 
 local link = require("./link")
 local ui = tern.ui
@@ -16,6 +17,12 @@ local RESULTS = tern.plugin.data .. (if tern.runtime.os == "windows" then "\\" e
 
 export type Item = { kind: string, id: string, title: string, detail: string, length_s: number? }
 
+-- What a key or click asks the player to do with an item.
+export type Pick = { op: string, item: Item }
+
+-- An artist's top tracks or an album's tracks; title and subtitle arrive with the items.
+export type List = { kind: string, id: string, title: string?, subtitle: string? }
+
 export type State = {
    -- The key that opened search, and when (see `search.open`).
    trigger: string?,
@@ -29,12 +36,14 @@ export type State = {
    -- The query last sent, and the command id its results come back under.
    sent: string,
    waiting: string?,
-   -- Order of every search sent, so a late answer to an older one never replaces a newer one.
+   -- Order of every lookup sent, so a late answer to an older one never replaces a newer one.
    order: { [string]: number },
    shown: number,
    items: { Item },
    selected: number,
    error: string?,
+   -- Showing a list instead of search results; typing goes back to searching.
+   list: List?,
 }
 
 -- `trigger` is the character of the key that opened search: Tern can deliver that key's text right
@@ -54,12 +63,29 @@ function search.open(trigger: string?): State
       items = {},
       selected = 1,
       error = nil,
+      list = nil,
    }
 end
 
 local sent_count = 0
 
--- Sends the query once typing pauses, and picks up results that arrived. Returns true when the
+local function track(st: State, id: string)
+   sent_count += 1
+   st.order[id] = sent_count
+   st.waiting = id
+end
+
+-- Opens (or switches the panel to) an artist's top tracks or an album's tracks.
+function search.open_list(st: State?, kind: string, id: string, send: (op: string, arg: string) -> string): State
+   local state = st or search.open()
+   state.list = { kind = kind, id = id }
+   state.query, state.sent, state.editing = "", "", false
+   state.items, state.selected, state.error = {}, 1, nil
+   track(state, send("list", kind .. " " .. id))
+   return state
+end
+
+-- Sends the query once typing pauses, and picks up answers that arrived. Returns true when the
 -- view changed.
 function search.poll(st: State, send: (op: string, arg: string) -> string): boolean
    local query = string.match(st.query, "^%s*(.-)%s*$") :: string
@@ -67,13 +93,11 @@ function search.poll(st: State, send: (op: string, arg: string) -> string): bool
    if query ~= st.sent and long_enough and tern.now() - st.typed_at >= TYPE_PAUSE_MS then
       st.sent = query
       st.force = false
-      sent_count += 1
-      local id = send("search", query)
-      st.order[id] = sent_count
-      st.waiting = id
+      st.list = nil
+      track(st, send("search", query))
       return true
    end
-   if query == "" and #st.items > 0 then
+   if query == "" and st.list == nil and #st.items > 0 then
       st.sent, st.items, st.waiting, st.error = "", {}, nil, nil
       return true
    end
@@ -100,6 +124,10 @@ function search.poll(st: State, send: (op: string, arg: string) -> string): bool
    st.error = result.error
    st.items = result.items or {}
    st.selected = math.clamp(st.selected, 1, math.max(1, #st.items))
+   local list = st.list
+   if list and result.list then
+      list.title, list.subtitle = result.title, result.subtitle
+   end
    return true
 end
 
@@ -108,8 +136,13 @@ local function drop_last_char(text: string): string
    return if last then string.sub(text, 1, last - 1) else ""
 end
 
--- Handles a key; returns "close", an item to play, true when handled, or false.
-function search.key(st: State, key: Key): (string | Item | boolean)
+-- Tracks and albums can go into the queue; artists and playlists only play.
+function search.queueable(item: Item): boolean
+   return item.kind == "track" or item.kind == "album"
+end
+
+-- Handles a key; returns "close", a pick, true when handled, or false.
+function search.key(st: State, key: Key): (string | Pick | boolean)
    local name = key.name
    -- Without results, ↑↓ have nothing to move through: they stay the player's volume keys.
    if (name == "up" or name == "down") and #st.items == 0 then
@@ -120,13 +153,20 @@ function search.key(st: State, key: Key): (string | Item | boolean)
    elseif name == "enter" then
       local item = st.items[st.selected]
       local query = string.match(st.query, "^%s*(.-)%s*$") :: string
-      if item and query == st.sent then
-         return item
+      if item and (query == st.sent or st.list) then
+         if key.shift and search.queueable(item) then
+            return { op = "queue-next", item = item }
+         elseif key.ctrl and search.queueable(item) then
+            return { op = "queue-last", item = item }
+         end
+         return { op = "play", item = item }
       end
       -- Results are for another query, or none were asked for yet: search now.
       st.force = query ~= ""
       st.typed_at = 0
       return true
+   elseif key.ctrl or key.alt or key.meta then
+      return false
    elseif name == "down" or (not st.editing and key.text == "j") then
       st.editing = false
       st.selected = math.min(st.selected + 1, math.max(1, #st.items))
@@ -145,7 +185,7 @@ function search.key(st: State, key: Key): (string | Item | boolean)
    if text == " " and st.query == "" then
       return false
    end
-   if text and text ~= "" and not key.ctrl and not key.alt and not key.meta then
+   if text and text ~= "" then
       if text == st.trigger and st.query == "" and tern.now() - st.opened_at < 200 then
          st.trigger = nil
          return true
@@ -168,26 +208,58 @@ local function with(node: Node, props: { [string]: any }): Node
    return node
 end
 
+local function small_button(key: string, label: string, action: string): Node
+   return with(ui.text({ ui.span(label) }), { key = key, role = "tidal-row-button", actions = { click = action } })
+end
+
 local KIND = { track = "♪", album = "◎", artist = "☺", playlist = "≡" }
 
-function search.view(st: State): Node
+local function heading(st: State): Node
+   local list = st.list
+   if list and st.query == "" then
+      local spans: { Span } = {
+         ui.span((KIND[list.kind] or "·") .. " ", "dim"),
+         ui.span(list.title or "…", "strong"),
+      }
+      if list.subtitle and list.subtitle ~= "" then
+         table.insert(spans, ui.span(" · " .. list.subtitle, "muted"))
+      end
+      if st.waiting then
+         table.insert(spans, ui.span("   loading…", "dim"))
+      elseif st.error then
+         table.insert(spans, ui.span("   " .. st.error, "dim"))
+      end
+      local row: { Node } = { with(ui.text(spans), { key = "title", role = "tidal-line" }) }
+      table.insert(row, small_button("playall", "play all", "playall"))
+      if list.kind == "artist" then
+         table.insert(row, small_button("artistradio", "radio", "artistradio"))
+      end
+      table.insert(row, small_button("back", "esc", "closesearch"))
+      return with(ui.row(row), { key = "query", role = "tidal-list-heading" })
+   end
    local short = (utf8.len(st.query) or #st.query) < MIN_CHARS
    local status = if st.waiting then "searching…"
       elseif st.error then st.error
       elseif st.sent ~= "" and #st.items == 0 then "no results"
       elseif short and #st.items == 0 then "results from 3 letters · enter searches now"
-      else "esc closes"
-   local lines: { Node } = {
-      with(ui.text({
-         ui.span("/ ", "dim"),
-         ui.span(st.query .. (if st.editing then "▏" else ""), "strong"),
-         ui.span("   " .. status, "dim"),
-      }), { key = "query", role = "tidal-line tidal-query" }),
-   }
-   for i, item in st.items do
+      else "enter plays · shift+enter next · ctrl+enter queue · esc closes"
+   return with(ui.text({
+      ui.span("/ ", "dim"),
+      ui.span(st.query .. (if st.editing then "▏" else ""), "strong"),
+      ui.span("   " .. status, "dim"),
+   }), { key = "query", role = "tidal-line tidal-query" })
+end
+
+-- `rows` caps how many items show; the rest are summarised in one line.
+function search.view(st: State, rows: number): Node
+   local lines: { Node } = { heading(st) }
+   local shown = math.min(#st.items, math.max(1, rows))
+   for i = 1, shown do
+      local item = st.items[i]
+      local selected = i == st.selected
       local spans: { Span } = {
          ui.span((KIND[item.kind] or "·") .. " ", "dim"),
-         ui.span(item.title, if i == st.selected then "strong" else nil),
+         ui.span(item.title, if selected then "strong" else nil),
       }
       if item.detail ~= "" then
          table.insert(spans, ui.span(" · " .. item.detail, "muted"))
@@ -195,18 +267,45 @@ function search.view(st: State): Node
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
-      table.insert(lines, with(ui.text(spans), {
+      local row: { Node } = {
+         with(ui.text(spans), { key = "label", role = "tidal-line tidal-row-label", actions = { click = "pick=" .. i } }),
+      }
+      if search.queueable(item) then
+         table.insert(row, small_button("next", "next", "qnext=" .. i))
+         table.insert(row, small_button("last", "+queue", "qlast=" .. i))
+      end
+      table.insert(lines, with(ui.row(row), {
          key = "r" .. i,
-         role = if i == st.selected then "tidal-line tidal-result tidal-selected" else "tidal-line tidal-result",
-         tone = if i == st.selected then "accent" else nil,
-         actions = { click = "pick=" .. i },
+         role = if selected then "tidal-row tidal-result tidal-selected" else "tidal-row tidal-result",
+         tone = if selected then "accent" else nil,
+      }))
+   end
+   if #st.items > shown then
+      table.insert(lines, with(ui.text({ ui.span(string.format("  +%d more", #st.items - shown), "dim") }), {
+         key = "more",
+         role = "tidal-line",
       }))
    end
    return with(ui.col(lines), { key = "search", role = "tidal-search" })
 end
 
+-- Whether the panel has items (results or a list) to take the space under the player.
+function search.busy(st: State): boolean
+   return #st.items > 0 or st.waiting ~= nil or st.list ~= nil
+end
+
 function search.signature(st: State): string
-   local parts = { st.query, tostring(st.editing), tostring(st.selected), st.waiting or "", st.error or "", st.sent, tostring(st.shown) }
+   local list = st.list
+   local parts = {
+      st.query,
+      tostring(st.editing),
+      tostring(st.selected),
+      st.waiting or "",
+      st.error or "",
+      st.sent,
+      tostring(st.shown),
+      if list then list.kind .. list.id .. (list.title or "") else "",
+   }
    return table.concat(parts, "\u{1f}")
 end
 

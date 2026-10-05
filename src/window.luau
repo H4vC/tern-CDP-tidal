@@ -6,9 +6,13 @@ local link = require("./link")
 local KIND = "tidal.player"
 local TICK_MS = 1000
 
+local function is_player(pane: PaneInfo): boolean
+   return pane.block == KIND or pane.block == "plugin." .. KIND
+end
+
 local function open_player(cx: WindowCx)
    for _, pane in cx.session:panes() do
-      if pane.block == KIND then
+      if is_player(pane) then
          cx.layout:focus(pane.pane)
          return
       end
@@ -32,20 +36,66 @@ end
 local mine: { [string]: boolean } = {}
 local answered: string? = nil
 
-local function command(id: string, title: string, icon: string, op: string)
+local function send(op: string, arg: (string | number)?)
+   mine[link.send(op, arg)] = true
+end
+
+-- A palette command; `run` gets the latest snapshot, for commands that toggle from the current state.
+local function command(id: string, title: string, icon: string, run: (snap: link.Snapshot?, cx: WindowCx) -> ())
    tern.command({
       id = id,
-      title = title,
+      title = "TIDAL: " .. title,
       icon = icon,
-      run = function(_cx: WindowCx)
-         mine[link.send(op)] = true
+      run = function(cx: WindowCx)
+         run(link.read(), cx)
       end,
    })
 end
 
-command("toggle", "TIDAL: Play/Pause", "play", "toggle")
-command("next", "TIDAL: Next track", "frame-next", "next")
-command("previous", "TIDAL: Previous track", "frame-prev", "prev")
+local function simple(id: string, title: string, icon: string, op: string, arg: string?)
+   command(id, title, icon, function()
+      send(op, arg)
+   end)
+end
+
+simple("toggle", "Play/Pause", "play", "toggle")
+simple("next", "Next track", "frame-next", "next")
+simple("previous", "Previous track", "frame-prev", "prev")
+simple("like", "Like / unlike this track", "heart", "like")
+simple("radio", "Track radio", "broadcast", "radio")
+command("shuffle", "Toggle shuffle", "swap", function(snap)
+   send("shuffle", if snap and snap.shuffle then "off" else "on")
+end)
+local NEXT_REPEAT = { off = "all", all = "one", one = "off" }
+command("repeat", "Cycle repeat", "repeat", function(snap)
+   send("repeat", NEXT_REPEAT[(snap and snap["repeat"]) or "off"] or "off")
+end)
+command("mute", "Mute / unmute", "slash-circle", function(snap)
+   send("mute", if snap and snap.muted then "off" else "on")
+end)
+command("artist-radio", "Artist radio", "broadcast", function(snap, cx)
+   local id = snap and snap.track and snap.track.artist_id
+   if id then
+      send("artist-radio", id)
+   else
+      cx:toast("info", "TIDAL", "Nothing is playing")
+   end
+end)
+simple("sleep-15", "Sleep in 15 minutes", "moon", "sleep", "15")
+simple("sleep-30", "Sleep in 30 minutes", "moon", "sleep", "30")
+simple("sleep-60", "Sleep in 60 minutes", "moon", "sleep", "60")
+simple("sleep-track", "Sleep at the end of this track", "moon", "sleep", "track")
+simple("sleep-off", "Cancel the sleep timer", "moon", "sleep", "off")
+command("lyrics", "Show lyrics / queue", "text-quote", function(_snap, cx)
+   local on = not link.setting("lyrics")
+   link.set_setting("lyrics", on)
+   cx:toast("info", "TIDAL", if on then "The player shows lyrics" else "The player shows the queue")
+end)
+command("notify", "Toggle track-change notifications", "bell", function(_snap, cx)
+   local on = not link.setting("notify")
+   link.set_setting("notify", on)
+   cx:toast("info", "TIDAL", if on then "Notifying on track changes" else "Track-change notifications off")
+end)
 
 local segment: StatusSegment? = nil
 
@@ -70,6 +120,33 @@ tern.chrome.status(function(_pane: StatusPaneInfo): { StatusSegment }?
    return if segment then { segment :: StatusSegment } else nil
 end)
 
+local function player_focused(cx: WindowCx): boolean
+   for _, pane in cx.session:panes() do
+      if is_player(pane) and pane.focused then
+         return true
+      end
+   end
+   return false
+end
+
+-- The album's accent colour tints the player's progress and highlights. Only a plain #rrggbb is
+-- taken, so nothing else can reach the stylesheet.
+local tint: string? = nil
+
+local function update_tint(snap: link.Snapshot?)
+   local color = snap and snap.track and snap.track.color
+   if color and not string.match(color, "^#%x%x%x%x%x%x$") then
+      color = nil
+   end
+   if color == tint then
+      return
+   end
+   tint = color
+   pcall(tern.css, "tint", if color then "[data-surface='plugin.tidal.player'] { --tidal-tint: " .. color .. "; }" else "")
+end
+
+local announced: string? = nil
+
 local function tick(cx: WindowCx?)
    local snap = link.read()
    link.ensure(snap)
@@ -83,6 +160,17 @@ local function tick(cx: WindowCx?)
          end
       end
    end
+   local track: link.Track? = if snap and link.fresh(snap) then snap.track else nil
+   local key = if track then (track.id or track.title) else nil
+   if key ~= announced then
+      -- The first track seen is the one already playing, not a change.
+      if cx and key and announced and link.setting("notify") and not player_focused(cx) then
+         local t = track :: link.Track
+         cx:toast("info", t.title, if t.artist ~= "" then t.artist else nil)
+      end
+      announced = key
+   end
+   update_tint(snap)
    local next_segment = segment_of(snap)
    local a, b = next_segment, segment
    if (a == nil) ~= (b == nil) or (a and b and (a.text ~= b.text or a.icon ~= b.icon)) then
@@ -99,10 +187,6 @@ tern.timer(TICK_MS, tick)
 -- focus, and opens search when the player gains focus.
 local VIEW_CHECK_MS = 250
 local published: { [number]: string } = {}
-
-local function is_player(pane: PaneInfo): boolean
-   return pane.block == KIND or pane.block == "plugin." .. KIND
-end
 
 local function publish_views(cx: WindowCx)
    local seen: { [number]: boolean } = {}

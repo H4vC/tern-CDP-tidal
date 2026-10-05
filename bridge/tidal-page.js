@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 7;
+	const VERSION = 10;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -34,6 +34,11 @@
 
 	const artists = (media) => (media.artists || []).map((a) => a.name).join(', ');
 	const titled = (media) => media.title + (media.version ? ' (' + media.version + ')' : '');
+	const mainArtistId = (media) => {
+		const list = media.artists || [];
+		const main = list.find((a) => a.type === 'MAIN') || list[0];
+		return main && main.id ? String(main.id) : null;
+	};
 
 	// ISO 8601 durations from the open API ("PT5M26S") in seconds.
 	const isoSeconds = (text) => {
@@ -41,14 +46,30 @@
 		return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : null;
 	};
 
+	// Details of tracks put in the queue that TIDAL itself never loaded (from search, say), looked up
+	// once each: id → { title, artist, length_s }, or 'pending'.
+	const looked = new Map();
+
+	const lookUp = (id) => {
+		if (looked.has(id)) return;
+		looked.set(id, 'pending');
+		v1('tracks/' + id)
+			.then((t) => looked.set(id, { title: titled(t), artist: artists(t), length_s: t.duration || null }))
+			.catch(() => looked.delete(id))
+			.then(() => window.__ternTidalEmit && window.__ternTidalEmit());
+	};
+
 	// A queued track's details: from the classic catalog when TIDAL loaded them there, else from the
-	// open-API entities (title and length only), else unknown.
+	// open-API entities (title and length only), else looked up (null until the answer arrives).
 	const queuedTrack = (s, id) => {
 		const item = s.content.mediaItems[id] && s.content.mediaItems[id].item;
 		if (item) return { title: titled(item), artist: artists(item), length_s: item.duration || null };
 		const tracks = s.entities.tracks && s.entities.tracks.entities;
 		const entity = tracks && tracks[id] && tracks[id].attributes;
 		if (entity) return { title: titled(entity), artist: '', length_s: isoSeconds(entity.duration) };
+		const known = looked.get(id);
+		if (known && known !== 'pending') return known;
+		lookUp(id);
 		return null;
 	};
 
@@ -72,7 +93,12 @@
 		const items = [];
 		for (let i = from; i < to; i++) {
 			const known = queuedTrack(s, String(elements[i].mediaItemId));
-			items.push({ title: known ? known.title : null, artist: known ? known.artist : '', length_s: known ? known.length_s : null });
+			items.push({
+				uid: elements[i].uid,
+				title: known ? known.title : null,
+				artist: known ? known.artist : '',
+				length_s: known ? known.length_s : null,
+			});
 		}
 		return { current: queue.currentIndex - from, total: elements.length, position: queue.currentIndex, items };
 	};
@@ -102,6 +128,11 @@
 						album: (media.album && media.album.title) || '',
 						length_ms: Math.round((context.actualDuration || media.duration || 0) * 1000) || null,
 						cover: coverUrl(media.album && media.album.cover),
+						// For the artist and album lists, radio and the colour tint.
+						artist_id: mainArtistId(media),
+						album_id: media.album && media.album.id ? String(media.album.id) : null,
+						color: (media.album && media.album.vibrantColor) || null,
+						liked: !!(s.favorites && (s.favorites.tracks || []).some((t) => String(t) === String(id))),
 					}
 				: null,
 			next: upNext(s),
@@ -137,12 +168,61 @@
 
 	const dispatch = (type, payload) => store.dispatch(payload === undefined ? { type } : { type, payload });
 
-	window.__ternTidalCommand = (op, arg) => {
+	// TIDAL's credentials provider lives in one of its bundled modules; importing an already-loaded
+	// module URL returns the same instance. The token never leaves the page.
+	let credentials = null;
+	const findCredentials = async () => {
+		if (credentials) return credentials;
+		const urls = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/assets\/[^/]+\.js$/.test(u));
+		for (const url of urls) {
+			let mod;
+			try {
+				mod = await import(url);
+			} catch {
+				continue;
+			}
+			for (const value of Object.values(mod)) {
+				const provider = value && typeof value === 'object' && value.credentialsProvider;
+				if (provider && typeof provider.getCredentials === 'function') return (credentials = provider);
+			}
+		}
+		throw new Error("Couldn't find TIDAL's sign-in");
+	};
+
+	// A GET against TIDAL's API with the app's own sign-in and country.
+	const api = async (base, path, accept) => {
+		const { token } = await (await findCredentials()).getCredentials();
+		const country = store.getState().session.countryCode;
+		const url = base + path + (path.includes('?') ? '&' : '?') + 'countryCode=' + encodeURIComponent(country);
+		const headers = { Authorization: 'Bearer ' + token };
+		if (accept) headers.Accept = accept;
+		const response = await fetch(url, { headers });
+		if (!response.ok) throw new Error('TIDAL answered ' + response.status);
+		return response.json();
+	};
+	const v1 = (path) => api('https://api.tidal.com/v1/', path);
+	const openApi = (path) => api('https://openapi.tidal.com/v2/', path, 'application/vnd.api+json');
+
+	const trackItem = (t) => ({ kind: 'track', id: String(t.id), title: titled(t), detail: artists(t), length_s: t.duration });
+
+	// The tracks an item adds to the queue: itself, or an album's tracks.
+	const trackIds = async (kind, id) => {
+		if (kind === 'track') return [Number(id)];
+		if (kind === 'album') return (await v1('albums/' + id + '/tracks?limit=100')).items.map((t) => t.id);
+		throw new Error('Only tracks and albums can be queued');
+	};
+
+	const currentId = (s) => s.playbackControls.mediaProduct && s.playbackControls.mediaProduct.productId;
+
+	window.__ternTidalCommand = async (op, arg) => {
 		if (!store) throw new Error('TIDAL is still loading');
 		const s = store.getState();
+		const [first, second] = String(arg).split(' ');
 		switch (op) {
 			case 'toggle':
 				return dispatch(s.playbackControls.playbackState === 'PLAYING' ? 'playbackControls/PAUSE' : 'playbackControls/PLAY');
+			case 'pause':
+				return dispatch('playbackControls/PAUSE');
 			case 'next':
 				return dispatch('playbackControls/SKIP_NEXT');
 			case 'prev':
@@ -164,6 +244,12 @@
 			case 'mute':
 				if (!!s.playbackControls.muted !== (arg === 'on')) dispatch('playbackControls/TOGGLE_MUTE');
 				return;
+			case 'like': {
+				// What TIDAL's heart does: toggles the current track in your collection.
+				const id = currentId(s);
+				if (!id) throw new Error('Nothing is playing');
+				return dispatch('content/TOGGLE_FAVORITE_ITEMS', { from: 'heart', items: [{ itemId: parseInt(id, 10), itemType: 'track' }], moduleId: undefined });
+			}
 			case 'jump': {
 				// To the queue entry at this index; what clicking a row in TIDAL's own queue does.
 				const index = Number(arg);
@@ -171,9 +257,32 @@
 				if (!Number.isInteger(index) || index < 0 || index >= length) throw new Error('No queue entry ' + arg);
 				return dispatch('playQueue/MOVE_TO', index);
 			}
+			case 'remove': {
+				// `<uid>` of a queue entry.
+				if (!(s.playQueue.elements || []).some((e) => e.uid === arg)) throw new Error('That entry left the queue');
+				return dispatch('playQueue/REMOVE_ELEMENT', { uid: arg });
+			}
+			case 'move': {
+				// `<from> <to>` queue indices.
+				const from = Number(first), to = Number(second);
+				const length = (s.playQueue.elements || []).length;
+				if (![from, to].every((n) => Number.isInteger(n) && n >= 0 && n < length)) throw new Error('No queue entry there');
+				// TIDAL's `toIndex` is the gap the entry is dropped into (before the entry there), so
+				// moving down lands one further than the final position.
+				return dispatch('playQueue/MOVE_TRACK', { fromIndex: from, toIndex: to > from ? to + 1 : to });
+			}
+			case 'queue-next':
+			case 'queue-last': {
+				// `<kind> <id>`: after the current track, or at the end, as TIDAL's "Play next" / "Add to queue".
+				const mediaItemIds = await trackIds(first, second);
+				const context = first === 'album' ? { id: second, type: 'album' } : { type: 'search' };
+				return op === 'queue-next'
+					? dispatch('playQueue/ADD_NEXT', { context, mediaItemIds, offset: 0 })
+					: dispatch('playQueue/ADD_LAST', { context, mediaItemIds });
+			}
 			case 'radio': {
 				// The current track's radio (TIDAL's track mix), played the way TIDAL's "Go to track radio" does.
-				const id = s.playbackControls.mediaProduct && s.playbackControls.mediaProduct.productId;
+				const id = currentId(s);
 				const item = id && s.content.mediaItems[id] && s.content.mediaItems[id].item;
 				const tracks = s.entities.tracks && s.entities.tracks.entities;
 				const related = id && tracks && tracks[id] && tracks[id].relationships;
@@ -182,19 +291,25 @@
 				if (!mixId) throw new Error('TIDAL has no radio for this track');
 				return dispatch('mix/PLAY_MIX', { mixId });
 			}
+			case 'artist-radio': {
+				// `<artist id>`: the artist's mix.
+				const artist = await v1('artists/' + arg);
+				const mixId = artist.mixes && artist.mixes.ARTIST_MIX;
+				if (!mixId) throw new Error('TIDAL has no radio for this artist');
+				return dispatch('mix/PLAY_MIX', { mixId });
+			}
 			case 'play': {
-				// `<kind> <id>` from a search result; the same actions TIDAL's own search uses.
-				const [kind, id] = String(arg).split(' ');
-				if (!id) throw new Error('Bad item ' + arg);
-				if (kind === 'track') return dispatch('content/FETCH_AND_PLAY_MEDIA_ITEM', { itemId: id, itemType: 'track', sourceContext: { type: 'search' } });
-				if (kind !== 'album' && kind !== 'playlist' && kind !== 'artist') throw new Error('Bad item ' + arg);
+				// `<kind> <id>` from a search result or list; the same actions TIDAL's own search uses.
+				if (!second) throw new Error('Bad item ' + arg);
+				if (first === 'track') return dispatch('content/FETCH_AND_PLAY_MEDIA_ITEM', { itemId: second, itemType: 'track', sourceContext: { type: 'search' } });
+				if (first !== 'album' && first !== 'playlist' && first !== 'artist') throw new Error('Bad item ' + arg);
 				return dispatch('playQueue/ADD_TRACK_LIST_TO_PLAY_QUEUE', {
 					clearActives: true,
-					context: { id, type: kind },
+					context: { id: second, type: first },
 					disableShuffle: true,
 					forceShuffle: false,
 					position: 'now',
-					trackListName: kind === 'artist' ? 'artists/' + id + '/toptracks' : kind + 's/' + id,
+					trackListName: first === 'artist' ? 'artists/' + second + '/toptracks' : first + 's/' + second,
 				});
 			}
 			default:
@@ -202,44 +317,52 @@
 		}
 	};
 
-	// TIDAL's credentials provider lives in one of its bundled modules; importing an already-loaded
-	// module URL returns the same instance. The token never leaves the page.
-	let credentials = null;
-	const findCredentials = async () => {
-		if (credentials) return credentials;
-		const urls = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => /\/assets\/[^/]+\.js$/.test(u));
-		for (const url of urls) {
-			let mod;
-			try {
-				mod = await import(url);
-			} catch {
-				continue;
-			}
-			for (const value of Object.values(mod)) {
-				const provider = value && typeof value === 'object' && value.credentialsProvider;
-				if (provider && typeof provider.getCredentials === 'function') return (credentials = provider);
-			}
-		}
-		throw new Error("Couldn't find TIDAL's sign-in to search with");
-	};
-
 	// Tracks, then albums, artists and playlists: one line each.
 	window.__ternTidalSearch = async (query) => {
 		if (!store) throw new Error('TIDAL is still loading');
-		const { token } = await (await findCredentials()).getCredentials();
-		const country = store.getState().session.countryCode;
-		const url = 'https://api.tidal.com/v1/search/top-hits?types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit=8&offset=0'
-			+ '&countryCode=' + encodeURIComponent(country) + '&query=' + encodeURIComponent(query);
-		const response = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-		if (!response.ok) throw new Error('TIDAL search failed (' + response.status + ')');
-		const found = await response.json();
+		const found = await v1('search/top-hits?types=TRACKS,ALBUMS,ARTISTS,PLAYLISTS&limit=8&offset=0&query=' + encodeURIComponent(query));
 		const items = (key) => (found[key] && found[key].items) || [];
 		return [
-			...items('tracks').map((t) => ({ kind: 'track', id: String(t.id), title: titled(t), detail: artists(t), length_s: t.duration })),
+			...items('tracks').map(trackItem),
 			...items('albums').map((a) => ({ kind: 'album', id: String(a.id), title: titled(a), detail: artists(a) })),
 			...items('artists').slice(0, 3).map((a) => ({ kind: 'artist', id: String(a.id), title: a.name, detail: '' })),
 			...items('playlists').slice(0, 5).map((p) => ({ kind: 'playlist', id: p.uuid, title: p.title, detail: (p.creator && p.creator.name) || '' })),
 		];
+	};
+
+	const ARTIST_TOP = 20;
+
+	// An artist's top tracks or an album's tracks, as `{ title, items }`.
+	window.__ternTidalList = async (kind, id) => {
+		if (!store) throw new Error('TIDAL is still loading');
+		if (kind === 'artist') {
+			const [artist, top] = await Promise.all([v1('artists/' + id), v1('artists/' + id + '/toptracks?limit=' + ARTIST_TOP)]);
+			return { title: artist.name, subtitle: 'top tracks', items: top.items.map(trackItem) };
+		}
+		if (kind === 'album') {
+			const [album, tracks] = await Promise.all([v1('albums/' + id), v1('albums/' + id + '/tracks?limit=100')]);
+			return { title: titled(album), subtitle: artists(album), items: tracks.items.map(trackItem) };
+		}
+		throw new Error('No list for ' + kind);
+	};
+
+	// A track's lyrics: `{ lines: [{ ms, text }] }` when TIDAL has them synced, `{ text }` when
+	// plain, `{}` when none.
+	window.__ternTidalLyrics = async (id) => {
+		if (!store) throw new Error('TIDAL is still loading');
+		const found = await openApi('tracks/' + id + '/relationships/lyrics?include=lyrics');
+		const lyrics = (found.included || []).find((r) => r.type === 'lyrics');
+		const attrs = lyrics && lyrics.attributes;
+		if (!attrs) return {};
+		if (attrs.lrcText) {
+			const lines = [];
+			for (const line of attrs.lrcText.split('\n')) {
+				const m = /^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/.exec(line.trim());
+				if (m) lines.push({ ms: Math.round((Number(m[1]) * 60 + Number(m[2])) * 1000), text: m[3].trim() });
+			}
+			if (lines.length) return { lines, provider: attrs.provider || null };
+		}
+		return attrs.text ? { text: attrs.text, provider: attrs.provider || null } : {};
 	};
 
 	let unsubscribe = null;
