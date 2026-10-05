@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 11;
+	const VERSION = 13;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -213,6 +213,37 @@
 
 	const currentId = (s) => s.playbackControls.mediaProduct && s.playbackControls.mediaProduct.productId;
 
+	// Starts a mix as radio without interrupting the song that's playing: the queue becomes the
+	// current track followed by the mix (TIDAL's own PLAY_MIX restarts from the mix's first track,
+	// which for a track radio is the same song from the start). `name` labels the queue's source.
+	const playRadio = async (s, mixId, name) => {
+		const queue = s.playQueue;
+		const current = currentId(s);
+		if (!current || queue.type === 'cloudV2' || !(queue.elements || [])[queue.currentIndex]) {
+			return dispatch('mix/PLAY_MIX', { mixId });
+		}
+		const items = (await v1('mixes/' + mixId + '/items?limit=100')).items || [];
+		const tracks = items.filter((i) => i.type === 'track' && i.item && i.item.allowStreaming !== false && String(i.item.id) !== String(current));
+		if (tracks.length === 0) throw new Error('TIDAL has no tracks in this radio');
+		// The mix answer already has the details the queue view needs; no lookups per track.
+		for (const { item } of tracks) {
+			looked.set(String(item.id), { title: titled(item), artist: artists(item), length_s: item.duration || null });
+		}
+		dispatch('playQueue/CLEAR_UPCOMING');
+		dispatch('playQueue/ADD_LAST', { context: { id: mixId, type: 'mix' }, mediaItemIds: tracks.map((t) => t.item.id) });
+		dispatch('playQueue/SET_SOURCE_PROPERTIES', {
+			entityId: mixId,
+			entityType: 'mix',
+			limit: queue.sourceLimit,
+			name,
+			trackListName: 'mixes/' + mixId,
+			url: '/mix/' + mixId,
+		});
+		// CLEAR_UPCOMING drops TIDAL's preloaded next track and ADD_LAST doesn't line up a new one;
+		// without this the song ends and playback stops instead of moving on to the radio.
+		dispatch('player/PRELOAD_NEXT_ITEM');
+	};
+
 	window.__ternTidalCommand = async (op, arg) => {
 		if (!store) throw new Error('TIDAL is still loading');
 		const s = store.getState();
@@ -280,7 +311,7 @@
 					: dispatch('playQueue/ADD_LAST', { context, mediaItemIds });
 			}
 			case 'radio': {
-				// The current track's radio (TIDAL's track mix), played the way TIDAL's "Go to track radio" does.
+				// The current track's radio (TIDAL's track mix); the song keeps playing and the mix follows.
 				const id = currentId(s);
 				const item = id && s.content.mediaItems[id] && s.content.mediaItems[id].item;
 				const tracks = s.entities.tracks && s.entities.tracks.entities;
@@ -288,14 +319,15 @@
 				const mixId = (item && item.mixes && item.mixes.TRACK_MIX)
 					|| (related && related.radio && related.radio.data && related.radio.data[0] && related.radio.data[0].id);
 				if (!mixId) throw new Error('TIDAL has no radio for this track');
-				return dispatch('mix/PLAY_MIX', { mixId });
+				const entity = tracks && tracks[id] && tracks[id].attributes;
+				return playRadio(s, mixId, (item && titled(item)) || (entity && titled(entity)) || 'Track radio');
 			}
 			case 'artist-radio': {
-				// `<artist id>`: the artist's mix.
+				// `<artist id>`: the artist's mix, after the song that's playing.
 				const artist = await v1('artists/' + arg);
 				const mixId = artist.mixes && artist.mixes.ARTIST_MIX;
 				if (!mixId) throw new Error('TIDAL has no radio for this artist');
-				return dispatch('mix/PLAY_MIX', { mixId });
+				return playRadio(s, mixId, artist.name || 'Artist radio');
 			}
 			case 'play': {
 				// `<kind> <id>` from a search result or list; the same actions TIDAL's own search uses.
