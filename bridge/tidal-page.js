@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 10;
+	const VERSION = 11;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -128,10 +128,9 @@
 						album: (media.album && media.album.title) || '',
 						length_ms: Math.round((context.actualDuration || media.duration || 0) * 1000) || null,
 						cover: coverUrl(media.album && media.album.cover),
-						// For the artist and album lists, radio and the colour tint.
+						// For the artist and album lists and radio.
 						artist_id: mainArtistId(media),
 						album_id: media.album && media.album.id ? String(media.album.id) : null,
-						color: (media.album && media.album.vibrantColor) || null,
 						liked: !!(s.favorites && (s.favorites.tracks || []).some((t) => String(t) === String(id))),
 					}
 				: null,

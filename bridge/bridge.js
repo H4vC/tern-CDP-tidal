@@ -327,7 +327,6 @@ function publish() {
 				length_ms: track.length_ms || undefined,
 				artist_id: track.artist_id || undefined,
 				album_id: track.album_id || undefined,
-				color: track.color || undefined,
 				liked: !!track.liked,
 			},
 			playing,

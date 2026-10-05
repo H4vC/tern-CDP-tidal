@@ -841,7 +841,13 @@ local function view(block: Block): BlockView
          end
       end
    end
-   local result: BlockView = { main = ui.col(parts) }
+   local layers: { Node } = {}
+   -- Docked, the cover sits faintly behind everything (styles/player.css fades and blurs it).
+   if s and s.cover and not block.floating and block.blob and block.cover_key == s.cover.key then
+      table.insert(layers, with(ui.node("image", { blob = block.blob, alt = "" }), { key = "backdrop", role = "tidal-backdrop" }))
+   end
+   table.insert(layers, with(ui.col(parts), { key = "content", role = "tidal-content" }))
+   local result: BlockView = { main = with(ui.col(layers), { key = "root", role = "tidal-root" }) }
    if notice then
       result.dock = ui.col({ with(ui.text({ ui.span(notice.text, "muted") }), { key = "notice" }) })
    end

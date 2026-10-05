@@ -32,8 +32,6 @@ export type Track = {
    -- For the artist and album lists.
    artist_id: string?,
    album_id: string?,
-   -- The album's accent colour ("#b0bad9"), tinting the player.
-   color: string?,
    -- In your collection.
    liked: boolean,
 }

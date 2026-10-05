@@ -108,7 +108,7 @@
 		background: var(--l2);
 	}
 	[data-role~='tidal-seek-line'][data-tone='accent'] {
-		background: var(--tidal-tint, var(--accent));
+		background: var(--accent);
 	}
 	[data-role~='tidal-seek-cell']:hover [data-role~='tidal-seek-line'] {
 		background: var(--t3);
@@ -134,15 +134,40 @@
 	[data-role~='tidal-selected'] {
 		background: var(--well);
 	}
-	/* The album's colour marks the current queue entry, lyric line or selection. */
+	/* The accent marks the current queue entry, lyric line or selection. */
 	[data-role~='tidal-selected'] {
-		box-shadow: inset 2px 0 0 var(--tidal-tint, var(--accent));
+		box-shadow: inset 2px 0 0 var(--accent);
 	}
 	[data-role~='tidal-queue'] {
 		margin-top: 10px;
 	}
 	[data-role~='tidal-queue-heading'] {
 		margin-bottom: 2px;
+	}
+
+	/* Docked: the cover fills the block behind the content, faded and blurred so text stays readable. */
+	[data-role~='tidal-root'] {
+		position: relative;
+		flex: 1 1 auto;
+		overflow: hidden;
+	}
+	[data-role~='tidal-backdrop'] {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		opacity: 0.12;
+		filter: blur(24px);
+		pointer-events: none;
+	}
+	[data-role~='tidal-backdrop'] .sf-img-frame {
+		width: 100%;
+		height: 100%;
+		border-radius: 0;
+		box-shadow: none;
+	}
+	[data-role~='tidal-content'] {
+		position: relative;
+		z-index: 1;
 	}
 
 	/* The play / pause marker column: fixed width so every title starts at the same place. */
@@ -157,7 +182,7 @@
 		height: 10px;
 	}
 	[data-role~='tidal-marker'][data-tone='accent'] {
-		color: var(--tidal-tint, var(--accent));
+		color: var(--accent);
 	}
 	/* One list row: the label takes the width and is what a click plays; small buttons sit at the
 	   end and only show on hover (and on the selected row). */
@@ -226,7 +251,7 @@
 		cursor: pointer;
 	}
 	[data-role~='tidal-heart'][data-tone='accent'] {
-		color: var(--tidal-tint, var(--accent));
+		color: var(--accent);
 	}
 	[data-role~='tidal-heart']:hover {
 		color: var(--t1);

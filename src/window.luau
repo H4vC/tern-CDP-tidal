@@ -129,22 +129,6 @@ local function player_focused(cx: WindowCx): boolean
    return false
 end
 
--- The album's accent colour tints the player's progress and highlights. Only a plain #rrggbb is
--- taken, so nothing else can reach the stylesheet.
-local tint: string? = nil
-
-local function update_tint(snap: link.Snapshot?)
-   local color = snap and snap.track and snap.track.color
-   if color and not string.match(color, "^#%x%x%x%x%x%x$") then
-      color = nil
-   end
-   if color == tint then
-      return
-   end
-   tint = color
-   pcall(tern.css, "tint", if color then "[data-surface='plugin.tidal.player'] { --tidal-tint: " .. color .. "; }" else "")
-end
-
 local announced: string? = nil
 
 local function tick(cx: WindowCx?)
@@ -170,7 +154,6 @@ local function tick(cx: WindowCx?)
       end
       announced = key
    end
-   update_tint(snap)
    local next_segment = segment_of(snap)
    local a, b = next_segment, segment
    if (a == nil) ~= (b == nil) or (a and b and (a.text ~= b.text or a.icon ~= b.icon)) then

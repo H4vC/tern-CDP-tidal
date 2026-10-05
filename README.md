@@ -52,7 +52,7 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
   the song; click a line to jump there.
 - **Floating and not focused:** a preview with play controls, artist · album, the timeline, the
   stream format and what plays next, then as many upcoming tracks as the card has room for.
-- The album's colour tints the progress bar and highlights.
+- Docked, the album cover sits faintly behind the player; colours follow your Tern theme.
 
 ## Controls
 
