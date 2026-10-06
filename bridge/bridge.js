@@ -188,12 +188,24 @@ async function resumePlayback() {
 // TIDAL that can't get the port isn't killed every few seconds.
 let autoRelaunches = 0;
 const RELAUNCH_RETRY_MAX_MS = 5 * 60 * 1000;
+// How long TIDAL must run unreachable before it counts as started without the port: one started
+// with it writes the port file within moments.
+const UNREACHABLE_GRACE_MS = 5000;
+let unreachableSince = 0;
 
+// Called each tick before that tick's connection attempt, so `connecting` is only true while an
+// earlier attempt is still under way (a stale port file makes every attempt await a refused fetch).
 function maybeRelaunch() {
-	if (ws || connecting || !appRunning) return;
+	if (ws || !appRunning) {
+		unreachableSince = 0;
+		return;
+	}
+	if (!unreachableSince) unreachableSince = Date.now();
+	if (connecting || Date.now() - unreachableSince < UNREACHABLE_GRACE_MS) return;
 	const wait = autoRelaunches === 0 ? 20000 : Math.min(20000 * 2 ** autoRelaunches, RELAUNCH_RETRY_MAX_MS);
 	if (Date.now() - launchedAt < wait) return; // still starting, or waiting before the next try
 	autoRelaunches++;
+	unreachableSince = 0;
 	log('TIDAL runs without remote control; restarting it (attempt ' + autoRelaunches + ')');
 	relaunch().catch((error) => log('relaunch: ' + error.message));
 }
@@ -542,8 +554,8 @@ setInterval(() => {
 	if (Date.now() - started > ORPHAN_AFTER_S * 1000 && pluginAgeS() > ORPHAN_AFTER_S) process.exit(0);
 	if (!ws) {
 		checkApp(false);
-		connect();
 		maybeRelaunch();
+		connect();
 	} else if (!state && Date.now() - connectedAt > 3000) {
 		// Connected but the page hasn't reported: it was replaced before the binding reached it.
 		connectedAt = Date.now();
