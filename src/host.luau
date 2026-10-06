@@ -997,7 +997,9 @@ local function view(block: Block): BlockView
          key = "overlay",
          role = if block.glance then "tidal-overlay tidal-overlay-title" else "tidal-overlay",
       }))
-      table.insert(parts, with(ui.col(art), { key = "art", role = "tidal-art tidal-art-w" .. tostring(art_px(block)) }))
+      -- Floating, the cover sits at the card's left edge like the rest of its content.
+      local role = "tidal-art tidal-art-w" .. tostring(art_px(block)) .. (if block.floating then " tidal-art-left" else "")
+      table.insert(parts, with(ui.col(art), { key = "art", role = role }))
    else
       table.insert(parts, main)
    end
@@ -1008,9 +1010,11 @@ local function view(block: Block): BlockView
       table.insert(parts, search.view(st, panel_rows(block), now))
    end
    -- Results or a list take the space while there are any; otherwise the player shows the lyrics or
-   -- the queue in whatever rows are left, docked or floating (not on an unfocused card: cover only).
+   -- the queue in whatever rows are left, docked or floating. An unfocused card shows the queue only
+   -- under a big cover (its cover stops at 320 px, so a bigger card has rows to spare); its compact
+   -- preview already lists what's next.
    -- A floating card with a big cover has its lyrics over the cover, so the queue stays below.
-   if not block.glance and not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
+   if (big or not block.glance) and not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
       if link.setting("lyrics") and not (block.floating and big) then
          table.insert(parts, lyrics_view(block, s))
       else

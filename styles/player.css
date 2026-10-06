@@ -227,6 +227,9 @@
 	[data-role~='tidal-art-w624'] { max-width: min(624px, 25vw); }
 	[data-role~='tidal-art-w632'] { max-width: min(632px, 25vw); }
 	[data-role~='tidal-art-w640'] { max-width: min(640px, 25vw); }
+	[data-role~='tidal-art-left'] {
+		align-self: flex-start;
+	}
 	[data-role~='tidal-art-image'] {
 		width: 100%;
 	}

@@ -66,9 +66,9 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
   sung in the accent colour; click a line to jump there. On a floating card with the big cover,
   lyrics play over the cover instead (the sung line between the ones around it), and the queue
   stays below.
-- **Floating and not focused:** just the cover with the title, artist and stream format on it,
-  filling the card. A card too small for that shows a compact preview (title, artist · album, the
-  timeline and what plays next).
+- **Floating and not focused:** the cover (at the card's left, up to 320 px) with the title, artist
+  and stream format on it, and the queue in any rows left below. A card too small for that shows a
+  compact preview (title, artist · album, the timeline and what plays next).
 - **Big cover:** the album cover shows at the largest size that fits (up to 640 px docked and 320 px
   on a floating card, and never wider than a quarter of the Tern window), scaling smoothly
   as you resize the block, with the title and heart, artist, album, controls and progress bar over
