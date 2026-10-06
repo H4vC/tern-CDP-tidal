@@ -801,12 +801,17 @@ local function queue_view(block: Block, s: Snapshot): Node?
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
-      -- A column for the marker: Tern's play / pause icon on the current entry (crisper than a text
-      -- glyph), empty on the others so the titles line up.
+      -- A column for the marker: on the current entry, three accent bars that bounce like a level
+      -- meter while it plays and hold still while paused (styles/player.css animates them); empty
+      -- on the others so the titles line up.
       local marker = if is_current
-         then with(ui.row({ ui.node("icon", { name = if playing() then "play" else "pause" }) }), {
+         then with(ui.row({
+            with(ui.text(""), { key = "b1", role = "tidal-eq-bar tidal-eq-1" }),
+            with(ui.text(""), { key = "b2", role = "tidal-eq-bar tidal-eq-2" }),
+            with(ui.text(""), { key = "b3", role = "tidal-eq-bar tidal-eq-3" }),
+         }), {
             key = "marker",
-            role = "tidal-marker",
+            role = if playing() then "tidal-marker tidal-eq" else "tidal-marker tidal-eq tidal-eq-paused",
             tone = "accent",
          })
          else with(ui.text(""), { key = "marker", role = "tidal-marker" })

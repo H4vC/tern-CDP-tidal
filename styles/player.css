@@ -388,6 +388,33 @@
 	[data-role~='tidal-marker'][data-tone='accent'] {
 		color: var(--accent);
 	}
+	/* The current entry's marker: three bars bouncing like a level meter while it plays; paused,
+	   they hold at low, even heights. */
+	[data-role~='tidal-eq'] {
+		height: 12px;
+		gap: 2px;
+		align-items: flex-end;
+	}
+	[data-role~='tidal-eq-bar'] {
+		flex: none;
+		width: 2px;
+		height: 12px;
+		background: var(--accent);
+		transform-origin: 50% 100%;
+		animation: tidal-eq 0.9s ease-in-out infinite alternate;
+	}
+	[data-role~='tidal-eq-2'] {
+		animation-duration: 0.7s;
+		animation-delay: -0.3s;
+	}
+	[data-role~='tidal-eq-3'] {
+		animation-duration: 1.1s;
+		animation-delay: -0.6s;
+	}
+	[data-role~='tidal-eq-paused'] [data-role~='tidal-eq-bar'] {
+		animation: none;
+		transform: scaleY(0.35);
+	}
 	/* The song that's playing, wherever a list shows it: the whole line in the accent colour. */
 	[data-role~='tidal-now'],
 	[data-role~='tidal-now'] * {
@@ -529,5 +556,18 @@
 	}
 	[data-role~='tidal-glance'] .sf-progress .lbl {
 		display: none;
+	}
+}
+
+/* The queue marker's bounce (see `tidal-eq-bar` above); at top level, where Tern allows it. */
+@keyframes tidal-eq {
+	0% {
+		transform: scaleY(0.25);
+	}
+	50% {
+		transform: scaleY(1);
+	}
+	100% {
+		transform: scaleY(0.5);
 	}
 }
