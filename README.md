@@ -21,11 +21,12 @@ The TIDAL desktop app is Electron running TIDAL's web player. The plugin starts 
 player's own state (exact position, quality, shuffle, repeat, app volume) and sends TIDAL's own
 playback actions. Changes reach the plugin within milliseconds.
 
-- **TIDAL must run with remote control.** When the plugin finds TIDAL running without it, it
+- **TIDAL must run with remote control.** Whenever the plugin finds TIDAL running without it, it
   restarts TIDAL that way by itself, and if TIDAL was playing it picks up the same track at the same
   spot (read from the OS media session first; on macOS this needs `media-control`, on Linux
-  `playerctl`). If the restart doesn't bring remote control up, the player offers
-  **Restart TIDAL**. Adding `--remote-debugging-port=0` to your TIDAL shortcut avoids the restart.
+  `playerctl`). If a restart doesn't bring remote control up, it tries again, waiting longer each
+  time (up to 5 minutes); **Restart now** in the player skips the wait. Adding
+  `--remote-debugging-port=0` to your TIDAL shortcut avoids the restart.
 - **Security:** while TIDAL runs with remote control, any program on this machine can control TIDAL
   and read its session through the DevTools port (bound to 127.0.0.1 only).
 - The bridge (`bridge/bridge.js`) runs on TIDAL's own Electron binary in Node mode

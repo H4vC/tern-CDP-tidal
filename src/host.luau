@@ -848,7 +848,8 @@ local function view(block: Block): BlockView
    elseif s.starting then
       main = message(block, "Starting TIDAL", "with remote control…", {})
    elseif s.relaunch then
-      main = message(block, "No remote control", "TIDAL was started without it.", { link_button("relaunch", "Restart TIDAL", "relaunch") }, "warning")
+      -- The bridge keeps retrying by itself; the button restarts TIDAL right away.
+      main = message(block, "No remote control", s.problem or "TIDAL was started without it.", { link_button("relaunch", "Restart now", "relaunch") }, "warning")
    elseif s.problem then
       main = message(block, "Can't reach TIDAL", s.problem, { link_button("retry", "Retry", "retry") }, "warning")
    elseif not s.app then

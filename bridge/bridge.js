@@ -183,16 +183,18 @@ async function resumePlayback() {
 	}
 }
 
-// Restarts TIDAL by itself when it runs without remote control. Gives up (and leaves it to the
-// player's Restart button) when a restart didn't bring the port up.
+// Restarts TIDAL whenever it runs without remote control, however it was started. A restart that
+// didn't bring the port up is retried, waiting longer each time (40 s, 80 s, … up to 5 min) so a
+// TIDAL that can't get the port isn't killed every few seconds.
 let autoRelaunches = 0;
+const RELAUNCH_RETRY_MAX_MS = 5 * 60 * 1000;
 
 function maybeRelaunch() {
 	if (ws || connecting || !appRunning) return;
-	if (Date.now() - launchedAt < 20000) return; // still starting
-	if (autoRelaunches >= 1) return;
+	const wait = autoRelaunches === 0 ? 20000 : Math.min(20000 * 2 ** autoRelaunches, RELAUNCH_RETRY_MAX_MS);
+	if (Date.now() - launchedAt < wait) return; // still starting, or waiting before the next try
 	autoRelaunches++;
-	log('TIDAL runs without remote control; restarting it');
+	log('TIDAL runs without remote control; restarting it (attempt ' + autoRelaunches + ')');
 	relaunch().catch((error) => log('relaunch: ' + error.message));
 }
 
@@ -299,12 +301,12 @@ let wroteAt = 0;
 function publish() {
 	const connected = !!(ws && ws.readyState === WebSocket.OPEN);
 	const snap = { v: 1, os: process.platform, pid: process.pid, app: connected || appRunning, playing: false, timeline };
-	// Running without the port: the bridge restarts TIDAL itself once; this asks only if that failed.
+	// Running without the port: the bridge restarts TIDAL itself, and keeps retrying if that fails.
 	if (!connected && Date.now() - launchedAt <= 20000) {
 		snap.starting = true;
 		snap.app = true;
 	} else if (!connected && appRunning && autoRelaunches > 0) {
-		snap.problem = "TIDAL didn't come back with remote control.";
+		snap.problem = "TIDAL didn't come back with remote control; trying again.";
 		snap.relaunch = true;
 	}
 	const s = connected ? state : null;
