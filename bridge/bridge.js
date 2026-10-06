@@ -4,8 +4,11 @@
 //
 //   <app executable> bridge.js <data-dir> <app executable>
 //
-// The app must be started with --remote-debugging-port; `launch` and `relaunch` do that. Talks to
-// the plugin through files in the data directory; see the protocol in src/link.luau.
+// Reaches TIDAL's page through its --remote-debugging-port when TIDAL was started with one;
+// otherwise it turns on the Node inspector in TIDAL's running main process and drives the page from
+// there (see tidal-main.js), so TIDAL keeps playing. Only when neither works does it restart TIDAL
+// with the port (`relaunch`). Talks to the plugin through files in the data directory; see the
+// protocol in src/link.luau.
 'use strict';
 
 const fs = require('fs');
@@ -195,13 +198,16 @@ let unreachableSince = 0;
 
 // Called each tick before that tick's connection attempt, so `connecting` is only true while an
 // earlier attempt is still under way (a stale port file makes every attempt await a refused fetch).
+// Only reached when neither the port nor the main-process inspector gets the bridge to the page.
 function maybeRelaunch() {
-	if (ws || !appRunning) {
+	if (link || !appRunning) {
 		unreachableSince = 0;
 		return;
 	}
 	if (!unreachableSince) unreachableSince = Date.now();
-	if (connecting || Date.now() - unreachableSince < UNREACHABLE_GRACE_MS) return;
+	// A main process that answers through its inspector is just waiting for its page: give it longer.
+	const grace = Date.now() - mainSeenAt < 15000 ? 30000 : UNREACHABLE_GRACE_MS;
+	if (connecting || Date.now() - unreachableSince < grace) return;
 	const wait = autoRelaunches === 0 ? 20000 : Math.min(20000 * 2 ** autoRelaunches, RELAUNCH_RETRY_MAX_MS);
 	if (Date.now() - launchedAt < wait) return; // still starting, or waiting before the next try
 	autoRelaunches++;
@@ -214,80 +220,249 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---- DevTools ------------------------------------------------------------------------------
 
-let ws = null;
-let nextId = 0;
-const pending = new Map();
+// The link to TIDAL's page, null while there is none:
+//   { kind: 'port' | 'inspector', send(method, params) → Promise<result>, close(), shutdown?() }
+// 'port': straight to the page through the DevTools port, when TIDAL was started with one.
+// 'inspector': TIDAL was started without it. The bridge turns on the Node inspector in TIDAL's
+// running main process and drives the page through Electron's webContents.debugger from there
+// (tidal-main.js), so TIDAL needn't restart.
+let link = null;
 let connecting = false;
+let connectedAt = 0;
 
-function send(method, params = {}) {
-	if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Not connected to TIDAL"));
-	const id = ++nextId;
-	ws.send(JSON.stringify({ id, method, params }));
+// A DevTools protocol connection: calls that resolve with their answer, events to `onEvent`.
+function openSocket(url, onEvent, onClose) {
 	return new Promise((resolve, reject) => {
-		pending.set(id, { resolve, reject });
-		setTimeout(() => {
-			if (pending.delete(id)) reject(new Error("TIDAL didn't answer in time"));
-		}, 3000);
+		const socket = new WebSocket(url);
+		const pending = new Map();
+		let nextId = 0;
+		socket.onerror = () => reject(new Error('DevTools connection failed'));
+		socket.onopen = () =>
+			resolve({
+				call(method, params = {}) {
+					if (socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Not connected to TIDAL'));
+					const id = ++nextId;
+					socket.send(JSON.stringify({ id, method, params }));
+					return new Promise((done, fail) => {
+						pending.set(id, { done, fail });
+						setTimeout(() => {
+							if (pending.delete(id)) fail(new Error("TIDAL didn't answer in time"));
+						}, 3000);
+					});
+				},
+				close: () => socket.close(),
+			});
+		socket.onmessage = (event) => {
+			const message = JSON.parse(event.data);
+			const waiting = message.id && pending.get(message.id);
+			if (waiting) {
+				pending.delete(message.id);
+				if (message.error) waiting.fail(new Error(message.error.message));
+				else waiting.done(message.result);
+			} else if (message.method) onEvent(message);
+		};
+		socket.onclose = () => {
+			for (const { fail } of pending.values()) fail(new Error('TIDAL closed'));
+			pending.clear();
+			onClose();
+		};
 	});
 }
 
-let connectedAt = 0;
+function send(method, params = {}) {
+	return link ? link.send(method, params) : Promise.reject(new Error('Not connected to TIDAL'));
+}
+
+function dropLink(gone) {
+	if (!gone || link !== gone) return;
+	link = null;
+	state = null;
+	publish();
+}
 
 // Installs the page side, or makes an existing install report its state again.
 async function install() {
 	await send('Runtime.evaluate', { expression: PAGE_SCRIPT });
 }
 
-async function connect() {
-	if (connecting || (ws && ws.readyState <= WebSocket.OPEN)) return;
-	connecting = true;
+async function setUpPage() {
+	// With Runtime enabled the binding also reaches documents TIDAL creates later (it reloads its
+	// page at times); the new-document script reinstalls the page side there.
+	await send('Runtime.enable');
+	await send('Runtime.addBinding', { name: '__ternTidal' });
+	await send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_SCRIPT });
+	await install();
+}
+
+async function viaPort() {
+	let port;
 	try {
-		let port;
-		try {
-			port = Number(fs.readFileSync(PORT_FILE, 'utf8').split('\n')[0]);
-		} catch {
+		port = Number(fs.readFileSync(PORT_FILE, 'utf8').split('\n')[0]);
+	} catch {
+		return null;
+	}
+	// Refused when the file is stale: TIDAL was started without the port since.
+	const targets = await (await fetch('http://127.0.0.1:' + port + '/json/list', { signal: AbortSignal.timeout(2000) })).json();
+	const page = targets.find((t) => t.type === 'page' && /tidal\.com/.test(t.url));
+	if (!page) return null;
+	let made = null;
+	const socket = await openSocket(page.webSocketDebuggerUrl, onMessage, () => dropLink(made));
+	made = { kind: 'port', send: (method, params) => socket.call(method, params), close: () => socket.close() };
+	return made;
+}
+
+// The Node inspector's default port: where SIGUSR1 / _debugProcess opens it.
+const INSPECTOR_PORT = 9229;
+const MAIN_SCRIPT = fs.readFileSync(path.join(__dirname, 'tidal-main.js'), 'utf8');
+// When TIDAL's main process last answered through its inspector (even if its page didn't yet).
+let mainSeenAt = 0;
+let inspectorTriedAt = 0;
+let inspectorProblem = '';
+
+// TIDAL's main process: the app's process that is neither a Chromium helper (--type=…) nor a
+// script run on the app's binary in Node mode (this bridge).
+function mainPid() {
+	const pick = (rows) => {
+		const main = rows.filter((r) => r.pid !== process.pid && r.command && !/--type=|\.js\b/.test(r.command));
+		return main.length > 0 ? main[0].pid : null;
+	};
+	return new Promise((resolve) => {
+		if (process.platform === 'win32') {
+			const root = process.env.SystemRoot || 'C:\\Windows';
+			const ps = path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+			const query =
+				"Get-CimInstance Win32_Process -Filter \"Name='" + path.basename(appExe) + "'\" | " +
+				'Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress';
+			childProcess.execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', query], { windowsHide: true, timeout: 8000 }, (error, out) => {
+				if (error || !out.trim()) return resolve(null);
+				const rows = [].concat(JSON.parse(out));
+				resolve(pick(rows.map((r) => ({ pid: r.ProcessId, command: r.CommandLine }))));
+			});
 			return;
 		}
-		const targets = await (await fetch('http://127.0.0.1:' + port + '/json/list', { signal: AbortSignal.timeout(2000) })).json();
-		const page = targets.find((t) => t.type === 'page' && /tidal\.com/.test(t.url));
-		if (!page) return;
-		const socket = new WebSocket(page.webSocketDebuggerUrl);
-		await new Promise((resolve, reject) => {
-			socket.onopen = resolve;
-			socket.onerror = () => reject(new Error('DevTools connection failed'));
+		childProcess.execFile('ps', ['-axo', 'pid=,command='], { timeout: 8000 }, (error, out) => {
+			if (error) return resolve(null);
+			const rows = out
+				.split('\n')
+				.map((line) => line.match(/^\s*(\d+)\s+(.*)$/))
+				.filter((m) => m && m[2].includes(appExe))
+				.map((m) => ({ pid: Number(m[1]), command: m[2] }));
+			resolve(pick(rows));
 		});
-		ws = socket;
-		socket.onmessage = (event) => onMessage(JSON.parse(event.data));
-		socket.onclose = () => {
-			if (ws === socket) ws = null;
-			for (const { reject } of pending.values()) reject(new Error('TIDAL closed'));
-			pending.clear();
-			state = null;
-			publish();
-		};
-		// With Runtime enabled the binding also reaches documents TIDAL creates later (it reloads its
-		// page at times); the new-document script reinstalls the page side there.
-		await send('Runtime.enable');
-		await send('Runtime.addBinding', { name: '__ternTidal' });
-		await send('Page.addScriptToEvaluateOnNewDocument', { source: PAGE_SCRIPT });
-		await install();
+	});
+}
+
+async function viaInspector() {
+	if (Date.now() - inspectorTriedAt < PROCESS_CHECK_MS) return null;
+	inspectorTriedAt = Date.now();
+	const pid = await mainPid();
+	if (!pid) {
+		if (inspectorProblem !== 'no main process') log('inspector: TIDAL has no main process to reach');
+		inspectorProblem = 'no main process';
+		return null;
+	}
+	// The app is up; only its page or inspector is in question, so a restart isn't warranted yet.
+	mainSeenAt = Date.now();
+	// Opens the inspector on 127.0.0.1; a no-op when it's already open.
+	if (process.platform === 'win32') process._debugProcess(pid);
+	else process.kill(pid, 'SIGUSR1');
+	let targets = null;
+	for (let i = 0; i < 10 && !targets; i++) {
+		try {
+			targets = await (await fetch('http://127.0.0.1:' + INSPECTOR_PORT + '/json/list', { signal: AbortSignal.timeout(1000) })).json();
+		} catch {
+			await sleep(200);
+		}
+	}
+	if (!targets || !targets[0]) throw new Error("TIDAL's inspector didn't open");
+	let made = null;
+	const main = await openSocket(
+		targets[0].webSocketDebuggerUrl,
+		(event) => {
+			if (event.method !== 'Runtime.bindingCalled' || event.params.name !== '__ternTidalRelay') return;
+			const message = JSON.parse(event.params.payload);
+			if (message.detached) {
+				log("TIDAL's page detached: " + message.detached);
+				if (made) made.close();
+			} else onMessage(message);
+		},
+		() => dropLink(made),
+	);
+	const evaluate = async (expression) => {
+		const result = await main.call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+		if (result.exceptionDetails) throw new Error(errorText(result.exceptionDetails));
+		return result.result.value;
+	};
+	try {
+		// The port is the inspector's default: it may belong to another Node program.
+		if ((await evaluate('process.pid')) !== pid) throw new Error('port ' + INSPECTOR_PORT + ' belongs to another program');
+		mainSeenAt = Date.now();
+		await main.call('Runtime.enable');
+		await main.call('Runtime.addBinding', { name: '__ternTidalRelay' });
+		await evaluate(MAIN_SCRIPT);
+	} catch (error) {
+		main.close();
+		throw error;
+	}
+	made = {
+		kind: 'inspector',
+		send: (method, params) => evaluate('globalThis.__ternTidalMain.send(' + JSON.stringify(method) + ', ' + JSON.stringify(params || {}) + ')'),
+		close: () => main.close(),
+		// Detaches from the page and closes TIDAL's inspector port again.
+		shutdown: () => evaluate('globalThis.__ternTidalMain.detach(true)'),
+	};
+	return made;
+}
+
+async function connect() {
+	if (connecting || link) return;
+	connecting = true;
+	try {
+		let next = null;
+		try {
+			next = await viaPort();
+		} catch {} // refused or reset: not up yet, or started without the port
+		if (!next && appRunning) {
+			try {
+				next = await viaInspector();
+				inspectorProblem = '';
+			} catch (error) {
+				if (error.message !== inspectorProblem) log('inspector: ' + error.message);
+				inspectorProblem = error.message;
+			}
+		}
+		if (!next) return;
+		link = next;
+		try {
+			await setUpPage();
+		} catch (error) {
+			link = null;
+			next.close();
+			throw error;
+		}
 		connectedAt = Date.now();
 		appRunning = true;
-	} catch (error) {
-		// Refused or reset: the app isn't up yet, or it was started without the port.
+		log('connected through the ' + next.kind);
+	} catch {
+		// The next tick tries again.
 	} finally {
 		connecting = false;
 	}
 }
 
+// Leaves TIDAL as it was found when the bridge stops.
+async function disconnect() {
+	const current = link;
+	link = null;
+	if (!current) return;
+	try {
+		if (current.shutdown) await Promise.race([current.shutdown(), sleep(1500)]);
+	} catch {}
+	current.close();
+}
+
+// The page's events, from either link.
 function onMessage(message) {
-	if (message.id && pending.has(message.id)) {
-		const { resolve, reject } = pending.get(message.id);
-		pending.delete(message.id);
-		if (message.error) reject(new Error(message.error.message));
-		else resolve(message.result);
-		return;
-	}
 	if (message.method === 'Runtime.bindingCalled' && message.params.name === '__ternTidal') {
 		try {
 			state = JSON.parse(message.params.payload);
@@ -311,7 +486,7 @@ let lastBody = '';
 let wroteAt = 0;
 
 function publish() {
-	const connected = !!(ws && ws.readyState === WebSocket.OPEN);
+	const connected = !!link;
 	const snap = { v: 1, os: process.platform, pid: process.pid, app: connected || appRunning, playing: false, timeline };
 	// Running without the port: the bridge restarts TIDAL itself, and keeps retrying if that fails.
 	if (!connected && Date.now() - launchedAt <= 20000) {
@@ -463,13 +638,13 @@ function checkSleep() {
 
 async function execute(id, op, arg) {
 	if (op === 'launch') {
-		if (ws) return;
+		if (link) return;
 		if (checkApp(true)) return relaunch();
 		return launch();
 	}
 	if (op === 'relaunch') return relaunch();
 	if (op === 'sleep') return setSleep(arg);
-	if (!ws) throw new Error(checkApp(true) ? 'TIDAL is restarting with remote control' : "TIDAL isn't running");
+	if (!link) throw new Error(checkApp(true) ? 'TIDAL is restarting with remote control' : "TIDAL isn't running");
 	// Lookups run alongside other commands; the plugin orders their answers.
 	if (op === 'search' || op === 'list' || op === 'lyrics') {
 		(op === 'search' ? search(id, arg) : op === 'list' ? list(id, arg) : lyrics(id, arg)).catch(() => {});
@@ -550,9 +725,17 @@ try {
 
 setInterval(() => drainInbox(), 250);
 setInterval(checkSleep, 200);
+let stopping = false;
 setInterval(() => {
-	if (Date.now() - started > ORPHAN_AFTER_S * 1000 && pluginAgeS() > ORPHAN_AFTER_S) process.exit(0);
-	if (!ws) {
+	if (Date.now() - started > ORPHAN_AFTER_S * 1000 && pluginAgeS() > ORPHAN_AFTER_S) {
+		// The plugin stopped checking in: leave TIDAL as it was, then go.
+		if (!stopping) {
+			stopping = true;
+			disconnect().finally(() => process.exit(0));
+		}
+		return;
+	}
+	if (!link) {
 		checkApp(false);
 		maybeRelaunch();
 		connect();

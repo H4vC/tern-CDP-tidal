@@ -18,8 +18,8 @@
 -- search <query> and list <artist|album> <id> (answers go to search.json as {id, query, list?,
 -- title?, subtitle?, items|error}), lyrics <track id> (to lyrics.json as {id, track, lines|text}),
 -- launch (start TIDAL with remote control), relaunch (restart it with remote control, resuming
--- playback). The bridge also restarts TIDAL by itself when it finds it running without remote
--- control.
+-- playback). When TIDAL runs without remote control, the bridge reaches it through its main
+-- process instead; it restarts TIDAL by itself only if that fails too.
 
 local link = {}
 

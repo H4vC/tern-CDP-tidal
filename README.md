@@ -16,21 +16,25 @@ any block. For development, `tern plugin link /path/to/tern-CDP-tidal`.
 
 ## How it talks to TIDAL
 
-The TIDAL desktop app is Electron running TIDAL's web player. The plugin starts TIDAL with
-`--remote-debugging-port` and drives that player over the Chrome DevTools protocol: it reads the
-player's own state (exact position, quality, shuffle, repeat, app volume) and sends TIDAL's own
-playback actions. Changes reach the plugin within milliseconds.
+The TIDAL desktop app is Electron running TIDAL's web player. The plugin drives that player over the
+Chrome DevTools protocol: it reads the player's own state (exact position, quality, shuffle, repeat,
+app volume) and sends TIDAL's own playback actions. Changes reach the plugin within milliseconds.
 
-- **TIDAL must run with remote control.** Whenever the plugin finds TIDAL running without it, it
-  restarts TIDAL that way by itself, and if TIDAL was playing it picks up the same track at the same
-  spot (read from the OS media session first; on macOS this needs `media-control`, on Linux
-  `playerctl`). If a restart doesn't bring remote control up, it tries again, waiting longer each
-  time (up to 5 minutes); **Restart now** in the player skips the wait. Adding
-  `--remote-debugging-port=0` to your TIDAL shortcut avoids the restart.
-- **Security:** while TIDAL runs with remote control, any program on this machine can control TIDAL
-  and read its session through the DevTools port (bound to 127.0.0.1 only).
+- **No restart needed.** If TIDAL was started with `--remote-debugging-port`, the plugin uses that.
+  Otherwise it turns on the Node inspector in TIDAL's running main process (port 9229, local only)
+  and drives the page through Electron's `webContents.debugger` from there, so your music keeps
+  playing. When the plugin stops, it detaches and closes the inspector again. Port 9229 is also the
+  default for debugging Node programs; if another program holds it, the plugin can't use it.
+- **Fallback: restart.** If neither works (for instance a TIDAL build that disables the inspector),
+  the plugin restarts TIDAL with the port, and if TIDAL was playing it picks up the same track at the
+  same spot (read from the OS media session first; on macOS this needs `media-control`, on Linux
+  `playerctl`). A restart that doesn't bring remote control up is retried, waiting longer each time
+  (up to 5 minutes); **Restart now** in the player skips the wait.
+- **Security:** while the plugin controls TIDAL, any program on this machine can too, through the
+  DevTools port or the inspector port (both bound to 127.0.0.1 only).
 - The bridge (`bridge/bridge.js`) runs on TIDAL's own Electron binary in Node mode
-  (`ELECTRON_RUN_AS_NODE=1`); `bridge/tidal-page.js` runs inside TIDAL's page.
+  (`ELECTRON_RUN_AS_NODE=1`); `bridge/tidal-main.js` runs inside TIDAL's main process and
+  `bridge/tidal-page.js` inside its page.
 
 | OS | App | Looked up at |
 | --- | --- | --- |
