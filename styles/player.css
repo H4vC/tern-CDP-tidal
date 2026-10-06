@@ -415,21 +415,24 @@
 		animation: none;
 		transform: scaleY(0.35);
 	}
-	/* On a floating card's cover: a bigger meter in the top-left corner, on a dark chip so it reads
-	   on any art. */
-	[data-role~='tidal-art-meter'] {
+	/* On a floating card's cover: how far the song is, a thin accent line along the top edge over a
+	   faint track (badge and text sit clear of it). */
+	[data-role~='tidal-art-progress'] {
 		position: absolute;
-		left: 6px;
-		top: 6px;
-		z-index: 2;
-		height: 22px;
-		gap: 3px;
-		padding: 4px 6px;
-		background: rgba(0, 0, 0, 0.55);
+		left: 0;
+		right: 0;
+		top: 0;
+		z-index: 3;
 	}
-	[data-role~='tidal-art-meter'] [data-role~='tidal-eq-bar'] {
-		width: 3px;
-		height: 14px;
+	[data-role~='tidal-art-progress'] .sf-progress .track,
+	[data-role~='tidal-art-progress'] .track {
+		height: 3px;
+		border-radius: 0;
+		background: rgba(0, 0, 0, 0.45);
+	}
+	[data-role~='tidal-art-progress'] .sf-progress .lbl,
+	[data-role~='tidal-art-progress'] .lbl {
+		display: none;
 	}
 	/* The song that's playing, wherever a list shows it: the whole line in the accent colour. */
 	[data-role~='tidal-now'],

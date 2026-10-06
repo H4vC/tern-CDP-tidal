@@ -994,9 +994,11 @@ local function view(block: Block): BlockView
       if badge then
          table.insert(art, badge)
       end
-      -- A floating card's cover shows the level meter in its top-left corner, opposite the format.
+      -- A floating card's cover shows how far the song is as a thin line along its top edge.
       if block.floating then
-         table.insert(art, level_meter("meter", "tidal-art-meter"))
+         local length = (s.track :: link.Track).length_ms
+         local fraction = if length and length > 0 then position() / length else 0
+         table.insert(art, with(ui.progress(fraction, ""), { key = "progress", role = "tidal-art-progress" }))
       end
       -- With lyrics on, a floating card sings them over its cover, above the title (or the player).
       local over: { Node } = {}
