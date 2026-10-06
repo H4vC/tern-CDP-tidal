@@ -69,8 +69,8 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 - **Floating and not focused:** just the cover with the title, artist and stream format on it,
   filling the card. A card too small for that shows a compact preview (title, artist · album, the
   timeline and what plays next).
-- **Big cover:** the album cover shows at the largest size that fits (up to 640 px, and never wider
-  than a quarter of the Tern window), scaling smoothly
+- **Big cover:** the album cover shows at the largest size that fits (up to 640 px docked and 320 px
+  on a floating card, and never wider than a quarter of the Tern window), scaling smoothly
   as you resize the block, with the title and heart, artist, album, controls and progress bar over
   its lower part on a dark fade. The cover shrinks to keep at least 3 queue entries in view below
   it; a block too small for a 160 px cover that way keeps the compact layout. A docked block wider

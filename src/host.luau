@@ -710,6 +710,9 @@ local PANEL_CHROME_ROWS = 5
 -- 8 px gap below. styles/player.css also keeps it within a quarter of the window's width. Tern
 -- doesn't say how big a cell is; at its default font one is about 8 × 16 px.
 local ART_PX = 640
+-- A floating card is a corner companion: its cover stops at 320 × 320, and a taller card gives the
+-- extra rows to the list.
+local FLOATING_ART_PX = 320
 -- Small enough for short cards, big enough that the player over it doesn't hide the whole cover.
 local ART_MIN_PX = 160
 local ART_STEP_PX = 8
@@ -734,7 +737,8 @@ local GLANCE_ART_MIN_PX = 104
 local function art_px(block: Block): number?
    local keep = if block.glance then 0 else LIST_CHROME_ROWS + LIST_ENTRIES_MIN
    local rows_left = block.cx.rows - search_rows(block) - keep
-   local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
+   local cap = if block.floating then FLOATING_ART_PX else ART_PX
+   local fit = math.min(cap, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
    local px = fit - fit % ART_STEP_PX
    return if px >= (if block.glance then GLANCE_ART_MIN_PX else ART_MIN_PX) then px else nil
 end
