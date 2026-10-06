@@ -709,21 +709,25 @@ local PANEL_CHROME_ROWS = 5
 local ART_PX = 640
 local ART_MIN_PX = 120
 local ART_STEP_PX = 40
--- Under the big cover the heading stacks: artist and album take a line each, the controls one more.
-local STACK_EXTRA_ROWS = 3
 local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
--- Rows under the cover: the stacked player (title, artist, album, controls, timeline), then list
--- rows: room for some of the queue when docked; a floating card, sized by you, needs just one.
+-- Under the big cover: the stacked player (title, artist, album, controls, timeline), the list's
+-- heading and some air, then list entries. The cover leaves at least this many entries: some of the
+-- queue when docked, a few on a floating card.
 local STACKED_PLAYER_ROWS = 5
-local LIST_ROWS_DOCKED = 9
-local LIST_ROWS_FLOATING = 1
+local LIST_CHROME_ROWS = 2
+local LIST_ENTRIES_DOCKED = 6
+local LIST_ENTRIES_FLOATING = 3
+
+local function stacked_rows(block: Block): number
+   return STACKED_PLAYER_ROWS + LIST_CHROME_ROWS + (if block.search then 1 else 0)
+end
 
 -- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
 local function art_px(block: Block): number?
-   local list = if block.floating then LIST_ROWS_FLOATING else LIST_ROWS_DOCKED
-   local rows_left = block.cx.rows - STACKED_PLAYER_ROWS - list - (if block.search then 1 else 0)
+   local entries = if block.floating then LIST_ENTRIES_FLOATING else LIST_ENTRIES_DOCKED
+   local rows_left = block.cx.rows - stacked_rows(block) - entries
    local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
    local px = fit - fit % ART_STEP_PX
    return if px >= ART_MIN_PX then px else nil
@@ -733,25 +737,21 @@ local function art_rows(block: Block): number
    return math.ceil(((art_px(block) or 0) + ART_GAP_PX) / CELL_H_PX)
 end
 
--- The cover shows above the player at the largest size that keeps the player (and, docked, some of
--- the list) in view: docked, or floating with or without focus. Otherwise a docked or focused
--- player has the cover as a thumbnail, and an unfocused floating one shows the glance.
+-- The cover shows above the player at the largest size that still leaves those list entries:
+-- docked, or floating with or without focus. Otherwise a docked or focused player has the cover as
+-- a thumbnail, and an unfocused floating one shows the glance.
 local function big_cover(block: Block, s: Snapshot): boolean
    return s.cover ~= nil and block.blob ~= nil and art_px(block) ~= nil
 end
 
--- Rows left for the list under the player: whatever height Tern gives the block (docked, or a
--- focused floating card of any size), so the list fills it.
+-- Entries the list under the player has room for: whatever height Tern gives the block, less the
+-- player (and the big cover), so the list fills it.
 local function panel_rows(block: Block): number
-   local rows = block.cx.rows - PANEL_CHROME_ROWS
-   if block.search then
-      rows -= 1 -- the search line
-   end
    local s = snap
    if s and big_cover(block, s) then
-      rows -= art_rows(block) + STACK_EXTRA_ROWS
+      return math.max(0, block.cx.rows - art_rows(block) - stacked_rows(block))
    end
-   return math.max(0, rows)
+   return math.max(0, block.cx.rows - PANEL_CHROME_ROWS - (if block.search then 1 else 0))
 end
 
 local function row_button(key: string, label: string, action: string): Node
