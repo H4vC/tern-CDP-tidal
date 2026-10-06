@@ -714,15 +714,16 @@ local STACK_EXTRA_ROWS = 3
 local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
--- List rows kept under the cover: room for some of the queue when docked; a floating card, sized
--- for the cover, keeps just a couple.
-local LIST_ROWS_DOCKED = 8
-local LIST_ROWS_FLOATING = 2
+-- Rows under the cover: the stacked player (title, artist, album, controls, timeline), then list
+-- rows: room for some of the queue when docked; a floating card, sized by you, needs just one.
+local STACKED_PLAYER_ROWS = 5
+local LIST_ROWS_DOCKED = 9
+local LIST_ROWS_FLOATING = 1
 
 -- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
 local function art_px(block: Block): number?
    local list = if block.floating then LIST_ROWS_FLOATING else LIST_ROWS_DOCKED
-   local rows_left = block.cx.rows - PANEL_CHROME_ROWS - STACK_EXTRA_ROWS - list - (if block.search then 1 else 0)
+   local rows_left = block.cx.rows - STACKED_PLAYER_ROWS - list - (if block.search then 1 else 0)
    local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
    local px = fit - fit % ART_STEP_PX
    return if px >= ART_MIN_PX then px else nil
@@ -732,11 +733,11 @@ local function art_rows(block: Block): number
    return math.ceil(((art_px(block) or 0) + ART_GAP_PX) / CELL_H_PX)
 end
 
--- The cover shows above the player, docked or floating with focus, at the largest size that keeps
--- the player and some of the list in view; otherwise it stays a thumbnail. (An unfocused floating
--- player shows the glance instead.)
+-- The cover shows above the player at the largest size that keeps the player (and, docked, some of
+-- the list) in view: docked, or floating with or without focus. Otherwise a docked or focused
+-- player has the cover as a thumbnail, and an unfocused floating one shows the glance.
 local function big_cover(block: Block, s: Snapshot): boolean
-   return not block.glance and s.cover ~= nil and block.blob ~= nil and art_px(block) ~= nil
+   return s.cover ~= nil and block.blob ~= nil and art_px(block) ~= nil
 end
 
 -- Rows left for the list under the player: whatever height Tern gives the block (docked, or a
@@ -911,7 +912,7 @@ local function view(block: Block): BlockView
       main = message(block, "TIDAL isn't running", "", { link_button("launch", "Open", "launch") })
    elseif s.track == nil then
       main = message(block, "Nothing playing", "", { link_button("launch", "Open", "launch") })
-   elseif block.glance then
+   elseif block.glance and not big_cover(block, s) then
       return { main = ui.col({ glance_view(block, s) }) }
    else
       main = now_playing(block, s, big_cover(block, s))
