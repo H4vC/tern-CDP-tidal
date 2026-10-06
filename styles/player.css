@@ -264,6 +264,16 @@
 	[data-role~='tidal-overlay'] [data-role~='tidal-button']:hover {
 		background: rgba(255, 255, 255, 0.15);
 	}
+	/* In the overlay's column, the shared `flex: 1 1 0` rules would collapse the lines to no height:
+	   the overlay then stays as short as its padding and the player spills out below the cover. */
+	[data-role~='tidal-overlay'] [data-role~='tidal-body'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-stack'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-stack-line'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-stack-name'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-stack-controls'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-timeline'] {
+		flex: none;
+	}
 
 	/* Under the big cover: title and heart, artist, album, then the controls, one line each. */
 	[data-role~='tidal-stacked'] {
