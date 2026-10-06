@@ -59,10 +59,11 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
   jump there.
 - **Floating and not focused:** a preview with play controls, artist · album, the timeline, the
   stream format and what plays next, then as many upcoming tracks as the card has room for.
-- **Big cover:** docked, or floating with focus, in a tall enough block, the album cover shows above
-  the player as wide as the block (up to 640 px). The title and heart, artist, album and controls
-  then take a line each. A block wider than the cover centres it all in a column as wide as the
-  cover. Colours follow your Tern theme.
+- **Big cover:** docked, or floating with focus, the album cover shows above the player at the
+  largest size that still leaves room for the player and some of the queue (up to 640 px; a short
+  floating card keeps the thumbnail, so make it taller to get the cover). The title and heart,
+  artist, album and controls then take a line each. A docked block wider than the cover centres it
+  all in a column as wide as the cover. Colours follow your Tern theme.
 
 ## Controls
 

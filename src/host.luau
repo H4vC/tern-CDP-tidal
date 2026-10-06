@@ -702,30 +702,41 @@ end
 -- Rows the block spends on things other than the list below the player: the two-line player, the
 -- list heading and some air.
 local PANEL_CHROME_ROWS = 5
--- The docked cover is as wide as the block up to 640 px (styles/player.css; TIDAL sends it at that
--- size), plus an 8 px gap. Tern doesn't say how big a cell is; at its default font one is about
--- 8 × 16 px.
+-- The big cover is as wide as the block up to 640 px (TIDAL sends it at that size), shrunk further
+-- so the player and some of the list still fit under it, in 40 px steps (`tidal-art-w<px>` in
+-- styles/player.css), plus an 8 px gap. Tern doesn't say how big a cell is; at its default font one
+-- is about 8 × 16 px.
 local ART_PX = 640
+local ART_MIN_PX = 120
+local ART_STEP_PX = 40
 -- Under the big cover the heading stacks: artist and album take a line each, the controls one more.
 local STACK_EXTRA_ROWS = 3
 local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
--- Rows kept for the player and some of the queue before a big cover is worth showing.
-local MIN_ROWS_BESIDE_ART = 14
+-- List rows kept under the cover: room for some of the queue when docked; a floating card, sized
+-- for the cover, keeps just a couple.
+local LIST_ROWS_DOCKED = 8
+local LIST_ROWS_FLOATING = 2
 
-local function art_rows(block: Block): number
-   return math.ceil((math.min(block.cx.cols * CELL_W_PX, ART_PX) + ART_GAP_PX) / CELL_H_PX)
+-- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
+local function art_px(block: Block): number?
+   local list = if block.floating then LIST_ROWS_FLOATING else LIST_ROWS_DOCKED
+   local rows_left = block.cx.rows - PANEL_CHROME_ROWS - STACK_EXTRA_ROWS - list - (if block.search then 1 else 0)
+   local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
+   local px = fit - fit % ART_STEP_PX
+   return if px >= ART_MIN_PX then px else nil
 end
 
--- The cover shows above the player (as wide as the block, up to its own size), docked or floating
--- with focus, when the block is tall enough to keep the player and some of the queue in view;
--- otherwise it stays a thumbnail. (An unfocused floating player shows the glance instead.)
+local function art_rows(block: Block): number
+   return math.ceil(((art_px(block) or 0) + ART_GAP_PX) / CELL_H_PX)
+end
+
+-- The cover shows above the player, docked or floating with focus, at the largest size that keeps
+-- the player and some of the list in view; otherwise it stays a thumbnail. (An unfocused floating
+-- player shows the glance instead.)
 local function big_cover(block: Block, s: Snapshot): boolean
-   return not block.glance
-      and s.cover ~= nil
-      and block.blob ~= nil
-      and block.cx.rows - art_rows(block) >= MIN_ROWS_BESIDE_ART
+   return not block.glance and s.cover ~= nil and block.blob ~= nil and art_px(block) ~= nil
 end
 
 -- Rows left for the list under the player: whatever height Tern gives the block (docked, or a
@@ -933,14 +944,18 @@ local function view(block: Block): BlockView
       if badge then
          table.insert(art, badge)
       end
-      table.insert(parts, 1, with(ui.col(art), { key = "art", role = "tidal-art" }))
+      table.insert(parts, 1, with(ui.col(art), { key = "art", role = "tidal-art tidal-art-w" .. tostring(art_px(block)) }))
    end
-   -- A block wider than the cover centres everything in a column as wide as the cover; a narrower
-   -- one keeps it left-aligned at the block's width.
-   local wide = big and block.cx.cols * CELL_W_PX > ART_PX + 2 * CELL_W_PX
+   -- A docked block wider than the cover centres everything in a column as wide as the cover; a
+   -- narrower one, and a floating player, keep it left-aligned at the block's width.
+   local px = if big then art_px(block) else nil
+   local wide = px ~= nil and not block.floating and block.cx.cols * CELL_W_PX > px + 2 * CELL_W_PX
    local result: BlockView = {
       main = ui.col({
-         with(ui.col(parts), { key = "stage", role = if wide then "tidal-stage tidal-centered" else "tidal-stage" }),
+         with(ui.col(parts), {
+            key = "stage",
+            role = if wide then "tidal-stage tidal-centered tidal-art-w" .. tostring(px) else "tidal-stage",
+         }),
       }),
    }
    if notice then

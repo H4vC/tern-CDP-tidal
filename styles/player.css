@@ -145,15 +145,28 @@
 		margin-bottom: 2px;
 	}
 
-	/* Big cover (docked, or floating with focus): above the player, as wide as the block up to its own
-	   size (640 px). */
+	/* Big cover (docked, or floating with focus): above the player, as wide as the block up to the size
+	   its `tidal-art-w<px>` class sets (host.luau picks the largest that leaves room below). */
 	[data-role~='tidal-art'] {
 		position: relative;
 		align-self: center;
 		width: 100%;
-		max-width: 640px;
 		margin-bottom: 8px;
 	}
+	[data-role~='tidal-art-w120'] { max-width: 120px; }
+	[data-role~='tidal-art-w160'] { max-width: 160px; }
+	[data-role~='tidal-art-w200'] { max-width: 200px; }
+	[data-role~='tidal-art-w240'] { max-width: 240px; }
+	[data-role~='tidal-art-w280'] { max-width: 280px; }
+	[data-role~='tidal-art-w320'] { max-width: 320px; }
+	[data-role~='tidal-art-w360'] { max-width: 360px; }
+	[data-role~='tidal-art-w400'] { max-width: 400px; }
+	[data-role~='tidal-art-w440'] { max-width: 440px; }
+	[data-role~='tidal-art-w480'] { max-width: 480px; }
+	[data-role~='tidal-art-w520'] { max-width: 520px; }
+	[data-role~='tidal-art-w560'] { max-width: 560px; }
+	[data-role~='tidal-art-w600'] { max-width: 600px; }
+	[data-role~='tidal-art-w640'] { max-width: 640px; }
 	[data-role~='tidal-art-image'] {
 		width: 100%;
 	}
@@ -201,7 +214,6 @@
 	[data-role~='tidal-centered'] {
 		align-self: center;
 		width: 100%;
-		max-width: 640px;
 	}
 	[data-role~='tidal-centered'] [data-role~='tidal-stack'],
 	[data-role~='tidal-centered'] [data-role~='tidal-stacked'] {
