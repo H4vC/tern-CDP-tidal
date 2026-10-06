@@ -87,15 +87,41 @@ simple("sleep-30", "Sleep in 30 minutes", "moon", "sleep", "30")
 simple("sleep-60", "Sleep in 60 minutes", "moon", "sleep", "60")
 simple("sleep-track", "Sleep at the end of this track", "moon", "sleep", "track")
 simple("sleep-off", "Cancel the sleep timer", "moon", "sleep", "off")
+-- Lyrics are per player: the focused one, else every player in this session.
 command("lyrics", "Show lyrics / queue", "text-quote", function(_snap, cx)
-   local on = not link.setting("lyrics")
-   link.set_setting("lyrics", on)
+   local targets: { number } = {}
+   for _, pane in cx.session:panes() do
+      if is_player(pane) and pane.focused then
+         targets = { pane.pane }
+         break
+      elseif is_player(pane) then
+         table.insert(targets, pane.pane)
+      end
+   end
+   if #targets == 0 then
+      cx:toast("info", "TIDAL", "No player is open")
+      return
+   end
+   local on = not link.setting(link.lyrics_key(targets[1]))
+   for _, pane in targets do
+      link.set_setting(link.lyrics_key(pane), on)
+   end
    cx:toast("info", "TIDAL", if on then "The player shows lyrics" else "The player shows the queue")
 end)
 command("notify", "Toggle track-change notifications", "bell", function(_snap, cx)
    local on = not link.setting("notify")
    link.set_setting("notify", on)
    cx:toast("info", "TIDAL", if on then "Notifying on track changes" else "Track-change notifications off")
+end)
+command("glance", "Floating card when not focused: cover only / cover + queue", "image", function(_snap, cx)
+   local cover_only = not link.setting("glance_cover_only")
+   link.set_setting("glance_cover_only", cover_only)
+   cx:toast("info", "TIDAL", if cover_only then "The unfocused card shows only the cover" else "The unfocused card shows the cover and the queue")
+end)
+command("auto-discovery", "Toggle queuing Daily Discovery when nothing follows", "sparkle", function(_snap, cx)
+   local off = not link.setting("no_auto_discovery")
+   link.set_setting("no_auto_discovery", off)
+   cx:toast("info", "TIDAL", if off then "Daily Discovery won't be queued by itself" else "Daily Discovery follows when nothing else is queued")
 end)
 
 local segment: StatusSegment? = nil

@@ -37,8 +37,11 @@ export type Track = {
    liked: boolean,
 }
 
--- User settings shared by the window half (palette commands) and the host half (the block), in the
--- plugin's kv store: `lyrics` (show lyrics instead of the queue), `notify` (toast on track change).
+-- User settings shared by the window half (palette commands), the host half (the block) and the
+-- bridge (which reads kv.json), in the plugin's kv store: `lyrics:<pane>` (that player shows lyrics
+-- instead of the queue), `notify` (toast on track change), `glance_cover_only` (an unfocused
+-- floating card shows only the cover, no queue), `no_auto_discovery` (don't queue Daily Discovery
+-- when nothing follows the current song).
 function link.setting(name: string): boolean
    local ok, value = pcall(tern.kv.get, "setting:" .. name)
    return ok and value == true
@@ -46,6 +49,11 @@ end
 
 function link.set_setting(name: string, value: boolean)
    pcall(tern.kv.set, "setting:" .. name, value)
+end
+
+-- The setting name for whether a player pane shows lyrics.
+function link.lyrics_key(pane: number): string
+   return "lyrics:" .. tostring(pane)
 end
 
 export type Snapshot = {
@@ -78,8 +86,9 @@ export type Snapshot = {
       ["repeat"]: boolean,
       volume: boolean,
    },
-   -- `tone`: whether the cover's top-right corner (under the format badge) is light or dark.
-   cover: { key: string, file: string?, url: string?, tone: string? }?,
+   -- `tone` / `tone_bottom`: whether the cover's top-right corner (under the quality icon) and its
+   -- bottom edge (under the player text) are light or dark.
+   cover: { key: string, file: string?, url: string?, tone: string?, tone_bottom: string? }?,
    -- TIDAL's stream quality (LOSSLESS, HI_RES_LOSSLESS, …).
    quality: string?,
    -- What the player streams: "24-bit 48 kHz FLAC".
@@ -105,6 +114,8 @@ export type Snapshot = {
    reply: { id: string, error: string? }?,
    -- The sleep timer: pauses at `at_s` (unix seconds), or when the current track ends.
    sleep: { at_s: number?, end_of_track: boolean? }?,
+   -- Bumped each time Daily Discovery was queued by itself after the current song.
+   auto_discovery: number?,
 }
 
 local DATA = tern.plugin.data
@@ -121,16 +132,35 @@ local function path(...: string): string
    return table.concat({ ... }, SEP)
 end
 
+-- The last now.json read: its text, the decoded snapshot, and the text without the heartbeat (which
+-- changes every second even when nothing else does). Re-decoded only when the text changes.
+local last_text: string? = nil
+local last_snap: Snapshot? = nil
+local last_signature = ""
+
 function link.read(): Snapshot?
    local ok, text = pcall(tern.fs.read, NOW, 1024 * 1024)
    if not ok then
       return nil
    end
+   if text == last_text then
+      return last_snap
+   end
+   last_text = text
    local decoded, snap = pcall(tern.json.decode, text)
    if not decoded or type(snap) ~= "table" or snap.v ~= 1 then
+      last_snap, last_signature = nil, ""
       return nil
    end
-   return snap :: Snapshot
+   last_snap = snap :: Snapshot
+   last_signature = string.gsub(text, '"beat":%d+', "")
+   return last_snap
+end
+
+-- What changed in the last snapshot read, as text: equal texts mean an equal snapshot (the
+-- heartbeat aside), so views can compare it instead of re-encoding the snapshot.
+function link.signature(): string
+   return last_signature
 end
 
 function link.fresh(snap: Snapshot?): boolean

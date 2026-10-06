@@ -47,36 +47,42 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 ## The player
 
 - **Title line:** title, then the artist and album (click either for the artist's top 20 tracks or
-  the album's tracks), the stream format (e.g. `24-bit 48 kHz FLAC`, orange when hi-res) and a heart
-  to like the track. When the big cover shows, the format sits on its corner instead.
+  the album's tracks), the stream quality as an icon (— low, ∿ high, shield lossless, bolt hi-res in
+  the accent; the help panel names them and shows the exact format) and a heart to like the track.
+  When the big cover shows, the quality icon sits on its corner instead.
 - **Controls:** previous, play/pause, next, shuffle, repeat, track radio, Daily Discovery, lyrics,
-  sleep timer (click to cycle 15 / 30 / 60 minutes / end of track / off), mute and volume.
-- **Progress bar:** click anywhere on it to seek.
+  sleep timer (opens a row of choices: 15 / 30 / 60 min, end of track, off), mute and volume (click
+  the number to step through 10 / 25 / 50), search, and **?** help.
+- **Help** (`?` or the help button): what every button does, the keys, and the quality icons.
+- **Progress bar:** click anywhere on it to seek (also the line along the top of a focused floating
+  card's cover).
 - **Daily Discovery:** the ✦ button (or **Daily Discovery** when nothing is playing) plays your "My
-  Daily Discovery" mix after the song that's playing. It's also the default: when nothing is queued
-  after the current song (one you picked on its own, or the end of a list) and repeat is off, Daily
-  Discovery is queued after it, so playback carries on.
-- **What's playing from** is marked in the accent colour: the radio button while a track radio
-  plays, ✦ while Daily Discovery does, **play all** / **radio** in an album or artist list while the
-  queue plays that album or artist (radio), and the album, playlist or artist in search results.
-- **Under the player**, in whatever height the block has (docked or floating and focused): the
-  queue, or the lyrics. The queue shows a couple of played tracks, the current one highlighted and
-  what comes next; click a line to play it, hover for ↑ ↓ ✕ to move or drop it, or **link** to copy
-  the track's share address (tidal.com/track/…). Synced lyrics follow the song with the line being
-  sung in the accent colour; click a line to jump there. On a floating card with the big cover,
-  lyrics play over the cover instead (the sung line between the ones around it), and the queue
-  stays below.
+  Daily Discovery" mix after the song that's playing. By default, when nothing is queued after the
+  current song (one you picked on its own, or the end of a list) and repeat is off, Daily Discovery
+  is queued after it so playback carries on, and the player says so; the palette turns that off.
+- **What's playing now** is always the accent colour: its line in the queue (with a level meter),
+  the synced lyric being sung, the radio button while a track radio plays, ✦ while Daily Discovery
+  does, **play all** / **radio** in an album or artist list while the queue plays it, and the album,
+  playlist or artist in search results. The search selection is a neutral band.
+- **Under the player**, in whatever height the block has: the queue, or the lyrics (per player, so a
+  docked and a floating player can differ). The queue shows a couple of played tracks, then what
+  comes next; click a line to play it, hover for **next** (play right after this song), ↑ ↓ ✕ to
+  move or drop it, or **link** to copy its share address (tidal.com/track/…). Long lines end in "…".
+  Synced lyrics follow the song and a click jumps there; plain lyrics say "not synced" and can't
+  be clicked. On a floating card with the big cover, lyrics play over the cover instead.
 - **Floating and not focused:** the cover (at the card's left, up to 320 px) with the title, artist
-  and stream format on it, and the queue in any rows left below. A card too small for that shows a
-  compact preview (title, artist · album, the timeline and what plays next).
+  and quality on it, a thin progress line along its top, and the queue in any rows left below; the
+  palette switches to cover only (the cover fills the card). A card too small for that shows a
+  compact preview: a small cover, title, artist and a thin progress line.
 - **Big cover:** the album cover shows at the largest size that fits (up to 640 px docked and 320 px
-  on a floating card, and never wider than a quarter of the Tern window), scaling smoothly
-  as you resize the block, with the title and heart, artist, album, controls and progress bar over
-  its lower part on a dark fade. The cover shrinks to keep at least 3 queue entries in view below
-  it; a block too small for a 160 px cover that way keeps the compact layout. A docked block wider
-  than the cover centres it all in a column as wide as the cover. Colours follow your Tern theme.
-- **Stream format badge** on the cover's top corner: on the panel colour, or on the accent when the
+  on a floating card, and never wider than a quarter of the Tern window), scaling smoothly as you
+  resize the block, with the title and heart, artist, album, controls and progress bar over its
+  lower part on a dark fade (darker on light covers). Stacked, the cover shrinks to keep at least 3
+  queue entries below it. A docked block wide enough puts the cover on the left at full height and
+  the queue or lyrics beside it. The list clips whatever doesn't fit. Colours follow your Tern theme.
+- **Quality icon** on the cover's top corner sits on a solid square, switched to the accent when the
   cover's corner is as light (or as dark) as the panel, so it always stands out.
+- **Errors** from TIDAL stay under the player until you dismiss them (✕) or the next command works.
 
 ## Controls
 
@@ -92,12 +98,14 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 | `l` | Like / unlike |
 | `y` | Lyrics / queue |
 | `a` `b` | The artist's top tracks / the album's tracks |
-| `t` | Sleep timer |
+| `t` | Sleep timer choices |
 | `o` | Open TIDAL |
 | `/`, `f` | Search |
+| `?` | Help |
+| `Esc` | Close search, help or the sleep choices |
 
-Focusing the player opens search, so letters type into it; `Esc` closes it and the letter keys above
-work again. Space, the arrows and the number keys work either way.
+Focusing the player opens search, so letters type into it (the search line says so); `Esc` closes
+it and the letter keys above work again. Space, `?`, the arrows and the number keys work either way.
 
 **Search** opens under the player: type, and results (tracks, albums, artists, playlists) list one
 per line from the third letter. `↑` `↓` pick; `Enter` or a click plays (replacing the queue, as
@@ -108,11 +116,11 @@ Lookups run inside TIDAL with its own sign-in. (Tern gives plugin blocks no righ
 the actions are hover buttons.)
 
 **Palette:** Open player, Play/Pause, Next / Previous track, Like, Track radio, Play My Daily
-Discovery, Artist radio,
-Toggle shuffle, Cycle repeat, Mute, Sleep in 15 / 30 / 60 minutes, Sleep at the end of this track,
-Cancel the sleep timer, Show lyrics / queue, and Toggle track-change notifications (a toast when the
-track changes while the player isn't focused; off by default). Clicking the status line segment
-opens the player.
+Discovery, Artist radio, Toggle shuffle, Cycle repeat, Mute, Sleep in 15 / 30 / 60 minutes, Sleep at
+the end of this track, Cancel the sleep timer, Show lyrics / queue (the focused player, else all),
+Toggle track-change notifications (a toast when the track changes while the player isn't focused;
+off by default), Floating card when not focused: cover only / cover + queue, and Toggle queuing
+Daily Discovery when nothing follows. Clicking the status line segment opens the player.
 
 ## Internals
 

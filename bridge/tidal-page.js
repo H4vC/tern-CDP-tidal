@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 22;
+	const VERSION = 23;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -32,15 +32,24 @@
 
 	const coverUrl = (id) => (id ? 'https://resources.tidal.com/images/' + id.replace(/-/g, '/') + '/640x640.jpg' : null);
 
-	// How bright the cover's top-right corner is, where the stream format badge sits: 'light' or
-	// 'dark', by cover URL; 'pending' while it's being measured, null if it couldn't be.
+	// How bright the cover is where things sit on it: its top-right corner (the quality icon) and its
+	// bottom third (the player text), each 'light' or 'dark'. By cover URL; 'pending' while it's
+	// being measured, null if it couldn't be.
 	const coverTones = new Map();
+	const NO_TONES = { corner: null, bottom: null };
+
+	const lightness = (context, x, y, w, h) => {
+		const pixels = context.getImageData(x, y, w, h).data;
+		let sum = 0;
+		for (let i = 0; i < pixels.length; i += 4) sum += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+		return sum / (pixels.length / 4) / 255 > 0.45 ? 'light' : 'dark';
+	};
 
 	const coverTone = (url) => {
-		if (!url) return null;
+		if (!url) return NO_TONES;
 		if (coverTones.has(url)) {
-			const tone = coverTones.get(url);
-			return tone === 'pending' ? null : tone;
+			const tones = coverTones.get(url);
+			return tones === 'pending' ? NO_TONES : tones || NO_TONES;
 		}
 		coverTones.set(url, 'pending');
 		(async () => {
@@ -48,15 +57,11 @@
 			const canvas = new OffscreenCanvas(32, 32);
 			const context = canvas.getContext('2d');
 			context.drawImage(bitmap, 0, 0, 32, 32);
-			// The badge covers about the right half of the top tenth.
-			const pixels = context.getImageData(16, 0, 16, 4).data;
-			let sum = 0;
-			for (let i = 0; i < pixels.length; i += 4) sum += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
-			coverTones.set(url, sum / (pixels.length / 4) / 255 > 0.45 ? 'light' : 'dark');
+			coverTones.set(url, { corner: lightness(context, 24, 0, 8, 6), bottom: lightness(context, 0, 21, 32, 11) });
 		})()
 			.catch(() => coverTones.set(url, null))
 			.then(() => window.__ternTidalEmit && window.__ternTidalEmit());
-		return null;
+		return NO_TONES;
 	};
 
 	const artists = (media) => (media.artists || []).map((a) => a.name).join(', ');
@@ -180,8 +185,9 @@
 						album: (media.album && media.album.title) || '',
 						length_ms: Math.round((context.actualDuration || media.duration || 0) * 1000) || null,
 						cover: coverUrl(media.album && media.album.cover),
-						// Whether the stream format badge sits on a light or dark corner of the cover.
-						cover_tone: coverTone(coverUrl(media.album && media.album.cover)),
+						// Whether the cover is light or dark under the quality icon and under the player text.
+						cover_tone: coverTone(coverUrl(media.album && media.album.cover)).corner,
+						cover_tone_bottom: coverTone(coverUrl(media.album && media.album.cover)).bottom,
 						// For the artist and album lists and radio.
 						artist_id: mainArtistId(media),
 						album_id: media.album && media.album.id ? String(media.album.id) : null,
@@ -207,6 +213,8 @@
 			source_type: queue.sourceEntityType || null,
 			source_id: queue.sourceEntityId ? String(queue.sourceEntityId) : null,
 			source_mix: queue.sourceEntityType === 'mix' && queue.sourceEntityId ? mixType(String(queue.sourceEntityId)) : null,
+			// How many times Daily Discovery was queued by itself since this page loaded.
+			auto_discovery: autoQueued,
 		};
 	};
 
@@ -389,8 +397,10 @@
 		return current.uid;
 	};
 
+	// Off when you turned it off (the bridge sets this from the plugin's settings).
+	let autoQueued = 0;
 	const continueWithDiscovery = () => {
-		const uid = lastWithNothingAfter(store.getState());
+		const uid = window.__ternTidalAutoDiscovery === false ? null : lastWithNothingAfter(store.getState());
 		if (!uid || uid === continuedFor) {
 			if (settling && settling.uid !== uid) {
 				clearTimeout(settling.timer);
@@ -405,9 +415,15 @@
 			timer: setTimeout(() => {
 				settling = null;
 				const s = store.getState();
-				if (lastWithNothingAfter(s) !== uid || continuedFor === uid) return;
+				if (window.__ternTidalAutoDiscovery === false || lastWithNothingAfter(s) !== uid || continuedFor === uid) return;
 				continuedFor = uid;
-				playDiscovery(s).catch(() => {});
+				playDiscovery(s)
+					.then(() => {
+						// Reported in the snapshot, so the player can say it happened.
+						autoQueued++;
+						emit();
+					})
+					.catch(() => {});
 			}, SETTLE_MS),
 		};
 	};

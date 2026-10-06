@@ -294,6 +294,24 @@ async function setUpPage() {
 	await install();
 }
 
+// The plugin's settings the page needs, from the plugin's kv store (kv.json in the data directory):
+// whether to queue Daily Discovery by itself. Sent when it changes, after (re)connecting, and every
+// so often, because TIDAL reloading its page forgets it.
+const KV_FILE = path.join(data, 'kv.json');
+const SETTINGS_EVERY_MS = 15000;
+let settingsSent = { auto: null, at: 0, link: null };
+
+function pushSettings() {
+	let kv = {};
+	try {
+		kv = JSON.parse(fs.readFileSync(KV_FILE, 'utf8'));
+	} catch {}
+	const auto = kv['setting:no_auto_discovery'] !== true;
+	if (settingsSent.auto === auto && settingsSent.link === link && Date.now() - settingsSent.at < SETTINGS_EVERY_MS) return;
+	settingsSent = { auto, at: Date.now(), link };
+	send('Runtime.evaluate', { expression: 'window.__ternTidalAutoDiscovery = ' + auto }).catch(() => {});
+}
+
 async function viaPort() {
 	let port;
 	try {
@@ -531,11 +549,12 @@ function publish() {
 			source_type: s.source_type || undefined,
 			source_id: s.source_id || undefined,
 			source_mix: s.source_mix || undefined,
+			auto_discovery: s.auto_discovery || undefined,
 			next: s.next || undefined,
 			queue: s.queue || undefined,
 			can: { toggle: true, next: true, prev: true, seek: !!track.length_ms, shuffle: true, repeat: true, volume: true },
 		});
-		if (track.cover) snap.cover = { key: track.cover, url: track.cover, tone: track.cover_tone || undefined };
+		if (track.cover) snap.cover = { key: track.cover, url: track.cover, tone: track.cover_tone || undefined, tone_bottom: track.cover_tone_bottom || undefined };
 	} else {
 		if (lastSync) {
 			lastSync = '';
@@ -746,6 +765,8 @@ setInterval(() => {
 		// Connected but the page hasn't reported: it was replaced before the binding reached it.
 		connectedAt = Date.now();
 		send('Runtime.addBinding', { name: '__ternTidal' }).then(install).catch((error) => log('reinstall: ' + error.message));
+	} else {
+		pushSettings();
 	}
 	publish();
 }, RECONNECT_MS);

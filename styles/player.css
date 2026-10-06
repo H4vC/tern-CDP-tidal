@@ -134,9 +134,10 @@
 	[data-role~='tidal-selected'] {
 		background: var(--well);
 	}
-	/* The accent marks the current queue entry, lyric line or selection. */
+	/* The keyboard selection in search results: a neutral band with a light edge. The accent colour
+	   is kept for what's playing now (text, the level meter, lit buttons, the progress line). */
 	[data-role~='tidal-selected'] {
-		box-shadow: inset 2px 0 0 var(--accent);
+		box-shadow: inset 2px 0 0 var(--t3);
 	}
 	[data-role~='tidal-queue'] {
 		margin-top: 10px;
@@ -239,13 +240,23 @@
 		border-radius: 0;
 		box-shadow: none;
 	}
-	/* The stream format on the cover's top-right corner, on a solid backing so it reads on any art. */
+	/* The stream quality icon on the cover's top-right corner, on a solid square so it reads on any
+	   art; hi-res icons in the accent. */
 	[data-role~='tidal-art-badge'] {
 		position: absolute;
 		right: 6px;
-		top: 6px;
+		top: 8px;
 		z-index: 2;
+		flex: none;
+		width: 20px;
+		height: 20px;
+		align-items: center;
+		justify-content: center;
 		background: var(--panel);
+		color: var(--t1);
+	}
+	[data-role~='tidal-art-badge'][data-tone='accent'] {
+		color: var(--accent);
 	}
 	/* On a cover whose corner is the same lightness as the panel, the panel backing would vanish: the
 	   badge takes the accent instead (panel-coloured text). `light-dark()` picks per theme: a dark
@@ -274,6 +285,11 @@
 		padding: 28px 10px 8px;
 		background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.72) 40%, rgba(0, 0, 0, 0.85));
 		color: rgba(255, 255, 255, 0.92);
+	}
+	/* A light cover under the text: a darker, taller fade. */
+	[data-role~='tidal-overlay-strong'] {
+		padding-top: 40px;
+		background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82) 30%, rgba(0, 0, 0, 0.92));
 	}
 	/* An unfocused floating card: just the title on a shorter fade. */
 	[data-role~='tidal-overlay-title'] {
@@ -348,30 +364,41 @@
 		margin: 2px 0;
 	}
 
-	/* A block wider than the cover: everything in a column as wide as the cover, centred. */
+	/* The block's content fills its height; the list under (or beside) the player takes what's left
+	   and clips what doesn't fit, so its row count needn't match the font exactly. */
 	[data-role~='tidal-stage'] {
 		flex: 1 1 auto;
 		min-width: 0;
+		min-height: 0;
+		height: 100%;
+		overflow: hidden;
 	}
-	[data-role~='tidal-centered'] {
-		align-self: center;
-		width: 100%;
+	[data-role~='tidal-list'] {
+		flex: 1 1 0;
+		min-height: 0;
+		min-width: 0;
+		overflow: hidden;
 	}
-	[data-role~='tidal-centered'] [data-role~='tidal-stack'],
-	[data-role~='tidal-centered'] [data-role~='tidal-stacked'] {
-		align-items: center;
-		text-align: center;
+	/* A wide docked block: the cover (with the player over it) on the left, the list on the right. */
+	[data-role~='tidal-side'] {
+		flex-direction: row;
+		align-items: flex-start;
+		gap: 12px;
 	}
-	[data-role~='tidal-centered'] [data-role~='tidal-stack-line'],
-	[data-role~='tidal-centered'] [data-role~='tidal-stack-controls'] {
-		justify-content: center;
+	[data-role~='tidal-side'] [data-role~='tidal-art'] {
+		flex: none;
+		align-self: flex-start;
+		margin-bottom: 0;
 	}
-	[data-role~='tidal-centered'] [data-role~='tidal-timeline'] {
-		align-self: stretch;
+	[data-role~='tidal-side-panel'] {
+		flex: 1 1 0;
+		min-width: 0;
+		min-height: 0;
+		height: 100%;
+		overflow: hidden;
 	}
-	[data-role~='tidal-centered'] [data-role~='tidal-queue-heading'],
-	[data-role~='tidal-centered'] [data-role~='tidal-lyric'] {
-		text-align: center;
+	[data-role~='tidal-side-panel'] [data-role~='tidal-search'] {
+		margin-top: 0;
 	}
 
 	/* The play / pause marker column: fixed width so every title starts at the same place. */
@@ -415,8 +442,8 @@
 		animation: none;
 		transform: scaleY(0.35);
 	}
-	/* On a floating card's cover: how far the song is, a thin accent line along the top edge over a
-	   faint track (badge and text sit clear of it). */
+	/* On a floating card's cover: how far the song is, a thin accent line along the top edge (with
+	   focus, the seek bar's cells, so clicking it seeks). */
 	[data-role~='tidal-art-progress'] {
 		position: absolute;
 		left: 0;
@@ -424,14 +451,26 @@
 		top: 0;
 		z-index: 3;
 	}
-	[data-role~='tidal-art-progress'] .sf-progress .track,
-	[data-role~='tidal-art-progress'] .track {
-		height: 3px;
-		border-radius: 0;
+	[data-role~='tidal-art-progress'][data-role~='tidal-seek'] [data-role~='tidal-seek-cell'] {
+		padding: 0 0 6px;
+	}
+	[data-role~='tidal-art-progress'] [data-role~='tidal-seek-line'] {
 		background: rgba(0, 0, 0, 0.45);
 	}
-	[data-role~='tidal-art-progress'] .sf-progress .lbl,
-	[data-role~='tidal-art-progress'] .lbl {
+	[data-role~='tidal-art-progress'] [data-role~='tidal-seek-line'][data-tone='accent'] {
+		background: var(--accent);
+	}
+	/* A thin, label-less progress line (Tern's progress node): the compact card and the cover. */
+	[data-role~='tidal-thin'] .sf-progress .track,
+	[data-role~='tidal-thin'] .track {
+		height: 3px;
+		border-radius: 0;
+	}
+	[data-role~='tidal-art-progress'][data-role~='tidal-thin'] .track {
+		background: rgba(0, 0, 0, 0.45);
+	}
+	[data-role~='tidal-thin'] .sf-progress .lbl,
+	[data-role~='tidal-thin'] .lbl {
 		display: none;
 	}
 	/* The song that's playing, wherever a list shows it: the whole line in the accent colour. */
@@ -445,6 +484,15 @@
 		align-items: center;
 		gap: 2px;
 		padding-right: 4px;
+		min-width: 0;
+		overflow: hidden;
+	}
+	/* Long titles end in "…" inside the row instead of running past it. */
+	[data-role~='tidal-row-label'] {
+		min-width: 0;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	[data-role~='tidal-row-label'] {
 		flex: 1 1 0;
@@ -480,6 +528,67 @@
 	[data-role~='tidal-lyric'] {
 		cursor: pointer;
 	}
+	/* Plain (unsynced) lyrics can't be clicked to seek. */
+	[data-role~='tidal-lyric-plain'] {
+		cursor: default;
+	}
+
+	/* The sleep timer's choices, under the controls. */
+	[data-role~='tidal-menu'] {
+		align-items: center;
+		gap: 2px;
+		margin: 2px 0;
+	}
+	[data-role~='tidal-menu-label'] {
+		flex: none;
+		padding-right: 4px;
+	}
+	[data-role~='tidal-menu-item'] {
+		flex: none;
+		padding: 0 6px;
+		color: var(--t2);
+		cursor: pointer;
+	}
+	[data-role~='tidal-menu-item']:hover {
+		background: var(--well);
+		color: var(--t1);
+	}
+	[data-role~='tidal-menu-item'][data-tone='accent'] {
+		color: var(--accent);
+	}
+	/* Clicking the volume number steps through levels. */
+	[data-role~='tidal-level-click'] {
+		cursor: pointer;
+	}
+	[data-role~='tidal-level-click']:hover {
+		background: var(--well);
+	}
+
+	/* The help panel: an icon column, then what it does and its keys. */
+	[data-role~='tidal-help-row'] {
+		align-items: center;
+		gap: 6px;
+		padding: 0 4px;
+	}
+	[data-role~='tidal-help-icon'] {
+		flex: none;
+		width: 16px;
+		justify-content: center;
+		color: var(--t2);
+	}
+	[data-role~='tidal-help-icon'][data-tone='accent'] {
+		color: var(--accent);
+	}
+
+	/* The last error, kept below the player until dismissed. */
+	[data-role~='tidal-problem'] {
+		align-items: center;
+		gap: 6px;
+		color: var(--err, var(--accent));
+	}
+	[data-role~='tidal-problem'] [data-role~='tidal-row-button'] {
+		opacity: 1;
+	}
 
 	/* The heading: title, then artist and album (clickable), quality and the heart. */
 	[data-role~='tidal-heading'] [data-role~='tidal-title'] {
@@ -504,6 +613,10 @@
 	}
 	[data-role~='tidal-quality'] {
 		flex: none;
+		color: var(--t3);
+	}
+	[data-role~='tidal-quality'][data-tone='accent'] {
+		color: var(--accent);
 	}
 	[data-role~='tidal-heart'] {
 		flex: none;
@@ -553,28 +666,24 @@
 		height: 20px;
 	}
 
+	/* The compact preview (a floating card too small for the big cover): a small cover beside the
+	   title, artist and a thin progress line. */
 	[data-role~='tidal-glance'] {
-		/* About the height of the five lines beside it. */
-		--tidal-cover: 72px;
-		align-items: flex-start;
+		--tidal-cover: 48px;
+		align-items: center;
 		gap: 8px;
 	}
 	[data-role~='tidal-glance'] [data-role~='tidal-body'] {
-		gap: 1px;
+		gap: 2px;
 	}
 	/* In a column, the row rule's flex basis of 0 collapsed the lines to no height. */
 	[data-role~='tidal-glance'] [data-role~='tidal-line'] {
 		flex: none;
 		line-height: 1.25;
 	}
-	[data-role~='tidal-glance'] [data-role~='tidal-timeline'] {
-		gap: 6px;
-	}
-	[data-role~='tidal-glance'] .sf-progress .track {
-		height: 3px;
-	}
-	[data-role~='tidal-glance'] .sf-progress .lbl {
-		display: none;
+	[data-role~='tidal-glance'] [data-role~='tidal-thin'] {
+		flex: none;
+		margin-top: 3px;
 	}
 }
 

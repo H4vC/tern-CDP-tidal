@@ -33,6 +33,12 @@ type Block = {
    focused: boolean,
    -- Floating (picture in picture); a docked player also lists the queue.
    floating: boolean,
+   -- Showing the help panel (`?`) instead of the queue or lyrics.
+   help: boolean,
+   -- The sleep timer's choices are open under the controls.
+   sleep_menu: boolean,
+   -- The last error TIDAL gave this pane's commands, shown until dismissed or the next success.
+   problem: string?,
 }
 
 -- Blocks have no close hook; the tick drops panes that are gone.
@@ -154,11 +160,13 @@ local function take_reply(s: Snapshot)
    answered = reply.id
    local pane = senders[reply.id]
    senders[reply.id] = nil
-   if pane and reply.error then
-      expected = {}
+   if pane then
+      expected = if reply.error then {} else expected
       local block = blocks[pane]
       if block then
-         block.cx:toast("error", "TIDAL", reply.error)
+         -- Errors stay in the player until dismissed (or the next command works).
+         block.problem = reply.error
+         block.signature = ""
       end
    end
 end
@@ -271,24 +279,36 @@ local function open_list(block: Block, kind: string, id: string?)
    end)
 end
 
-local function cycle_sleep(block: Block)
-   local s = snap
-   local now: string = "off"
-   if s and s.sleep then
-      now = if s.sleep.end_of_track then "track" else "on"
+-- The sleep timer's choices (minutes, or the end of this track), as the menu under the controls
+-- offers them.
+local SLEEP_CHOICES = { "15", "30", "60", "track", "off" }
+
+local function set_sleep(block: Block, choice: string)
+   block.sleep_menu = false
+   send(block, "sleep", choice)
+   say(if choice == "off" then "Sleep timer off"
+      elseif choice == "track" then "Pausing at the end of this track"
+      else "Pausing in " .. choice .. " minutes")
+end
+
+-- Clicking the volume number steps through these levels (the next one above the current, then
+-- back to the first).
+local VOLUME_PRESETS = { 10, 25, 50 }
+
+local function volume_preset(block: Block)
+   local level = shown("volume", snap and snap.volume) or 0
+   local target = VOLUME_PRESETS[1]
+   for _, preset in VOLUME_PRESETS do
+      if preset > level then
+         target = preset
+         break
+      end
    end
-   -- From off: 15 min. From a timer: the next step. From end of track: off.
-   local step = "15"
-   if now == "track" then
-      step = "off"
-   elseif now == "on" and s and s.sleep and s.sleep.at_s then
-      local left = (s.sleep.at_s - os.time()) / 60
-      step = if left > 45 then "track" elseif left > 22 then "60" else "30"
-   end
-   send(block, "sleep", step)
-   say(if step == "off" then "Sleep timer off"
-      elseif step == "track" then "Pausing at the end of this track"
-      else "Pausing in " .. step .. " minutes")
+   set_volume(block, target)
+end
+
+local function lyrics_on(block: Block): boolean
+   return link.setting(link.lyrics_key(block.cx.pane))
 end
 
 local function act(block: Block, name: string)
@@ -314,9 +334,16 @@ local function act(block: Block, name: string)
    elseif name == "like" then
       like(block)
    elseif name == "lyrics" then
-      link.set_setting("lyrics", not link.setting("lyrics"))
+      link.set_setting(link.lyrics_key(block.cx.pane), not lyrics_on(block))
+      block.help = false
    elseif name == "sleep" then
-      cycle_sleep(block)
+      block.sleep_menu = not block.sleep_menu
+   elseif name == "help" then
+      block.help = not block.help
+   elseif name == "volpreset" then
+      volume_preset(block)
+   elseif name == "dismiss" then
+      block.problem = nil
    elseif name == "artist" then
       open_list(block, "artist", snap and snap.track and snap.track.artist_id)
    elseif name == "album" then
@@ -426,9 +453,17 @@ local function cover_node(block: Block, s: Snapshot): Node
 end
 
 -- A progress bar you can click to seek: Tern's progress node doesn't say where it was clicked, so
--- the bar is a row of thin cells, each seeking to its own point. About one cell per column.
-local function seek_bar(block: Block, s: Snapshot, fraction: number): Node
-   local count = math.clamp(block.cx.cols - 24, 16, 160)
+-- the bar is a row of thin cells, each seeking to its own point. One cell per two columns keeps the
+-- re-render each second cheap and is still finer than a click.
+local SEEK_CELLS_MAX = 80
+
+local function seek_cells(block: Block): number
+   return math.clamp((block.cx.cols - 24) // 2, 16, SEEK_CELLS_MAX)
+end
+
+-- `role` places it: the timeline, or along the top of a floating card's cover.
+local function seek_bar(block: Block, s: Snapshot, fraction: number, role: string?): Node
+   local count = seek_cells(block)
    local lit = math.floor(fraction * count + 0.5)
    local cells: { Node } = table.create(count)
    for i = 1, count do
@@ -440,21 +475,40 @@ local function seek_bar(block: Block, s: Snapshot, fraction: number): Node
          with(ui.text(""), { role = "tidal-seek-line", tone = if i <= lit then "accent" else nil }),
       }), props)
    end
-   return with(ui.row(cells), { key = "bar", role = "tidal-seek" })
+   return with(ui.row(cells), { key = "bar", role = "tidal-seek" .. (if role then " " .. role else "") })
 end
 
--- What TIDAL streams, as "24-bit 48 kHz FLAC" (TIDAL's quality name when the format isn't known
--- yet); hi-res in the accent colour.
-local function format_badge(s: Snapshot, role: string): Node?
-   local text = s.format or (if s.quality then string.gsub(s.quality :: string, "_", " ") else nil)
-   if text == nil or text == "" then
+-- The stream quality as an icon, one per level (the help panel says which is which); hi-res in the
+-- accent colour.
+local QUALITY_ICON = {
+   LOW = "minus",
+   HIGH = "wave",
+   LOSSLESS = "shield",
+   HI_RES = "bolt",
+   HI_RES_LOSSLESS = "bolt",
+}
+local QUALITY_NAME = {
+   LOW = "Low (lossy)",
+   HIGH = "High (lossy)",
+   LOSSLESS = "Lossless (CD quality)",
+   HI_RES = "Hi-res (MQA)",
+   HI_RES_LOSSLESS = "Hi-res lossless",
+}
+
+local function quality_icon(s: Snapshot, role: string): Node?
+   local icon = s.quality and QUALITY_ICON[s.quality]
+   if icon == nil then
       return nil
    end
    local hires = s.quality == "HI_RES_LOSSLESS" or s.quality == "HI_RES"
-   return with(ui.badge(text, if hires then "accent" else "muted"), { key = "format", role = role })
+   return with(ui.row({ ui.node("icon", { name = icon }) }), {
+      key = "quality",
+      role = role,
+      tone = if hires then "accent" else nil,
+   })
 end
 
--- Title, then artist and album you can click for their track lists, the stream format (unless it
+-- Title, then artist and album you can click for their track lists, the stream quality (unless it
 -- sits on the big cover) and the heart.
 local function heading(block: Block, s: Snapshot, big: boolean): Node
    local track = s.track :: link.Track
@@ -476,7 +530,7 @@ local function heading(block: Block, s: Snapshot, big: boolean): Node
          actions = if track.album_id then { click = "album" } else nil,
       }))
    end
-   local badge = if big then nil else format_badge(s, "tidal-quality")
+   local badge = if big then nil else quality_icon(s, "tidal-quality")
    if badge then
       table.insert(parts, badge)
    end
@@ -536,8 +590,26 @@ local function sleep_label(s: Snapshot): string?
    return tostring(math.max(1, math.ceil(((sleep.at_s or os.time()) - os.time()) / 60))) .. "m"
 end
 
+-- The sleep timer's choices, under the controls while its button is open: the current one lit.
+local function sleep_menu(s: Snapshot): Node
+   local current = if s.sleep == nil then "off" elseif s.sleep.end_of_track then "track" else nil
+   local items: { Node } = {
+      with(ui.text({ ui.span("sleep", "dim") }), { key = "label", role = "tidal-menu-label" }),
+   }
+   for _, choice in SLEEP_CHOICES do
+      local label = if choice == "track" then "end of track" elseif choice == "off" then "off" else choice .. " min"
+      table.insert(items, with(ui.text({ ui.span(label) }), {
+         key = choice,
+         role = "tidal-menu-item",
+         tone = if choice == current then "accent" else nil,
+         actions = { click = "sleepset=" .. choice },
+      }))
+   end
+   return with(ui.row(items), { key = "sleepmenu", role = "tidal-menu" })
+end
+
 -- Two lines beside the cover: title and controls, then the timeline. With `big`, the cover shows
--- above instead (see `big_cover`): the heading stacks, the controls get their own row.
+-- above (or beside) instead (see `big_cover`): the heading stacks, the controls get their own row.
 local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    local track = s.track :: link.Track
 
@@ -559,8 +631,8 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    table.insert(controls, button("radio", "broadcast", "radio", true, s.source_mix == "TRACK_MIX"))
    -- Your Daily Discovery, after the song that's playing; lit while it plays.
    table.insert(controls, button("discovery", "sparkle", "discovery", true, s.source_mix == "DISCOVERY_MIX"))
-   table.insert(controls, button("lyrics", "text-quote", "lyrics", true, link.setting("lyrics")))
-   table.insert(controls, button("sleep", "moon", "sleep", true, s.sleep ~= nil))
+   table.insert(controls, button("lyrics", "text-quote", "lyrics", true, lyrics_on(block)))
+   table.insert(controls, button("sleep", "moon", "sleep", true, s.sleep ~= nil or block.sleep_menu))
    local sleeping = sleep_label(s)
    if sleeping then
       table.insert(controls, with(ui.text({ ui.span(sleeping, "muted") }), { key = "sleepleft", role = "tidal-level" }))
@@ -569,9 +641,11 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    if s.can.volume and level then
       local muted = shown("muted", s.muted) == true
       table.insert(controls, button("mute", if muted then "slash-circle" else "wave", "mute", true, muted))
+      -- Clicking the number steps through a few volume levels.
       table.insert(controls, with(ui.text({ ui.span(if muted then "mute" else tostring(level), "muted") }), {
          key = "level",
-         role = "tidal-level",
+         role = "tidal-level tidal-level-click",
+         actions = { click = "volpreset" },
       }))
    end
    if block.search == nil then
@@ -581,6 +655,8 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
          ui.text({ ui.span("f", "key") }),
       }), { key = "search", role = "tidal-search-hint", actions = { click = "search" } }))
    end
+   -- What every button does, and the keys.
+   table.insert(controls, button("help", "help", "help", true, block.help))
 
    local pos = position()
    local length = track.length_ms
@@ -590,37 +666,40 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
       with(ui.text({ ui.span(link.clock(length), "muted") }), { key = "length", role = "tidal-time" }),
    }), { key = "timeline", role = "tidal-timeline" })
 
+   local controls_row = with(ui.row(controls), {
+      key = "controls",
+      role = if big then "tidal-controls tidal-stack-controls" else "tidal-controls",
+   })
    if big then
-      return with(ui.col({
-         stacked_heading(block, s),
-         with(ui.row(controls), { key = "controls", role = "tidal-controls tidal-stack-controls" }),
-         timeline,
-      }), { key = "player", role = "tidal-body tidal-stacked" })
+      local stack: { Node } = { stacked_heading(block, s), controls_row }
+      if block.sleep_menu then
+         table.insert(stack, sleep_menu(s))
+      end
+      table.insert(stack, timeline)
+      return with(ui.col(stack), { key = "player", role = "tidal-body tidal-stacked" })
    end
-   local body = with(ui.col({
-      with(ui.row({
-         heading(block, s, big),
-         with(ui.row(controls), { key = "controls", role = "tidal-controls" }),
-      }), { key = "top", role = "tidal-top" }),
-      timeline,
-   }), { key = "body", role = "tidal-body" })
-   return with(ui.row({ cover_node(block, s), body }), { key = "player", role = "tidal-player" })
+   local body: { Node } = {
+      with(ui.row({ heading(block, s, big), controls_row }), { key = "top", role = "tidal-top" }),
+   }
+   if block.sleep_menu then
+      table.insert(body, sleep_menu(s))
+   end
+   table.insert(body, timeline)
+   return with(ui.row({ cover_node(block, s), with(ui.col(body), { key = "body", role = "tidal-body" }) }), {
+      key = "player",
+      role = "tidal-player",
+   })
 end
 
--- A floating player without focus. Tern keeps the card a few lines tall, so it fills them: cover
--- beside title, artist · album, the timeline with times, then the stream format and what plays
--- next. Nothing to click (Tern gives presses on an unfocused floating block to its card, which
--- focuses it).
+-- A floating card too small for the big cover, without focus: the cover small beside the title
+-- (with play controls: Tern can show a floating card enlarged without focusing it), the artist, and
+-- a thin line for how far the song is.
 local function glance_view(block: Block, s: Snapshot): Node
    local track = s.track :: link.Track
-   local function line(key: string, spans: { Span }): Node
-      return with(ui.text(spans), { key = key, role = "tidal-line" })
-   end
-
+   local length = track.length_ms
    local lines: { Node } = {
       with(ui.row({
          with(ui.text({ ui.span(track.title, "strong") }), { key = "title", role = "tidal-line" }),
-         -- Tern can show a floating card enlarged without focusing it; playback stays one click away.
          with(ui.row({
             button("prev", "frame-prev", "prev", s.can.prev),
             button("playpause", if playing() then "pause" else "play", "playpause", s.can.toggle),
@@ -628,73 +707,13 @@ local function glance_view(block: Block, s: Snapshot): Node
          }), { key = "controls", role = "tidal-controls" }),
       }), { key = "top", role = "tidal-top" }),
    }
-   local byline: { Span } = {}
    if track.artist ~= "" then
-      table.insert(byline, ui.span(track.artist))
+      table.insert(lines, with(ui.text({ ui.span(track.artist, "muted") }), { key = "artist", role = "tidal-line" }))
    end
-   if track.album ~= "" then
-      table.insert(byline, ui.span((if #byline > 0 then " · " else "") .. track.album, "muted"))
-   end
-   if #byline > 0 then
-      table.insert(lines, line("byline", byline))
-   end
-
-   local pos = position()
-   local length = track.length_ms
-   table.insert(lines, with(ui.row({
-      with(ui.text({ ui.span(link.clock(pos), "muted") }), { key = "at", role = "tidal-time" }),
-      with(ui.progress(if length and length > 0 then pos / length else 0, ""), { key = "bar", role = "tidal-bar" }),
-      with(ui.text({ ui.span(link.clock(length), "muted") }), { key = "length", role = "tidal-time" }),
-   }), { key = "timeline", role = "tidal-timeline" }))
-
-   local facts: { Span } = {}
-   local function fact(text: string?)
-      if text and text ~= "" then
-         table.insert(facts, ui.span((if #facts > 0 then " · " else "") .. text, "dim"))
-      end
-   end
-   fact(s.format)
-   if s.shuffle then
-      fact("shuffle")
-   end
-   if s["repeat"] and s["repeat"] ~= "off" then
-      fact("repeat " .. s["repeat"])
-   end
-   if s.volume then
-      fact(if s.muted then "muted" else "vol " .. tostring(s.volume))
-   end
-   if #facts > 0 then
-      table.insert(lines, line("facts", facts))
-   end
-
-   local next_track = s.next
-   if next_track then
-      table.insert(lines, line("next", {
-         ui.span("> ", "dim"),
-         ui.span(next_track.title),
-         ui.span(if next_track.artist ~= "" then " · " .. next_track.artist else "", "muted"),
-      }))
-   elseif s.source then
-      table.insert(lines, line("source", { ui.span("from ", "dim"), ui.span(s.source :: string, "muted") }))
-   else
-      table.insert(lines, line("next", { ui.span("last in the queue", "dim") }))
-   end
-
-   -- A taller card (Tern's floating size varies) fills its extra rows with what plays after that.
-   local queue = s.queue
-   local spare = block.cx.rows - #lines - 1
-   if queue and next_track and spare > 0 then
-      local from = queue.current + 3 -- 1-based: current is current + 1, next is current + 2
-      for i = from, math.min(#queue.items, from + spare - 1) do
-         local item = queue.items[i]
-         table.insert(lines, line("then" .. i, {
-            ui.span("> ", "dim"),
-            ui.span(item.title or "…", "muted"),
-            ui.span(if item.artist ~= "" then " · " .. item.artist else "", "dim"),
-         }))
-      end
-   end
-
+   table.insert(lines, with(ui.progress(if length and length > 0 then position() / length else 0, ""), {
+      key = "bar",
+      role = "tidal-thin",
+   }))
    return with(ui.row({
       cover_node(block, s),
       with(ui.col(lines), { key = "body", role = "tidal-body" }),
@@ -705,13 +724,14 @@ end
 -- list heading and some air.
 local PANEL_CHROME_ROWS = 5
 -- The big cover is as wide as the block up to 640 px (TIDAL sends it at that size), shrunk further
--- so some of the list still fits under it. Sizes go in 8 px steps, about one column each
+-- so some of the list still fits beside or under it. Sizes go in 8 px steps, about one column each
 -- (`tidal-art-w<px>` in styles/player.css), so it scales smoothly as the block resizes; there's an
--- 8 px gap below. styles/player.css also keeps it within a quarter of the window's width. Tern
--- doesn't say how big a cell is; at its default font one is about 8 × 16 px.
+-- 8 px gap. styles/player.css also keeps it within a quarter of the window's width. Tern doesn't say
+-- how big a cell is; at its default font one is about 8 × 16 px. The list takes whatever room is
+-- left and clips what doesn't fit, so a different cell size only shows fewer or more entries.
 local ART_PX = 640
 -- A floating card is a corner companion: its cover stops at 320 × 320, and a taller card gives the
--- extra rows to the list.
+-- extra rows to the list (unless you chose cover only for an unfocused card).
 local FLOATING_ART_PX = 320
 -- Small enough for short cards, big enough that the player over it doesn't hide the whole cover.
 local ART_MIN_PX = 160
@@ -720,27 +740,48 @@ local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
 -- Under the big cover (the player sits over it): the list's heading and some air, then at least
--- this many list entries, docked or floating; the cover shrinks to leave them. A taller block gives
--- the cover its room first, then the list any rows left.
+-- this many list entries; the cover shrinks to leave them. A taller block gives the cover its room
+-- first, then the list any rows left.
 local LIST_CHROME_ROWS = 2
 local LIST_ENTRIES_MIN = 3
+-- A docked block wide enough for the cover and this much list beside it puts them side by side:
+-- the cover on the left at the block's full height, the queue or lyrics on the right.
+local SIDE_LIST_PX = 320
 
 local function search_rows(block: Block): number
    return if block.search then 1 else 0
 end
 
--- An unfocused floating card shows just the cover with the title, artist and format on it, so the
+-- An unfocused floating card shows just the cover with the title, artist and quality on it, so the
 -- cover takes the whole card and can be smaller (two lines over it, not the player).
 local GLANCE_ART_MIN_PX = 104
 
+local function stepped(px: number, min: number): number?
+   local step = px - px % ART_STEP_PX
+   return if step >= min then step else nil
+end
+
+-- Side by side: the cover's width, or nil when the block is floating or not that wide.
+local function side_px(block: Block): number?
+   if block.floating then
+      return nil
+   end
+   local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX - SIDE_LIST_PX - ART_GAP_PX, block.cx.rows * CELL_H_PX - ART_GAP_PX)
+   return stepped(fit, ART_MIN_PX)
+end
+
 -- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
 local function art_px(block: Block): number?
+   local side = side_px(block)
+   if side then
+      return side
+   end
+   local cover_only = block.glance and link.setting("glance_cover_only")
    local keep = if block.glance then 0 else LIST_CHROME_ROWS + LIST_ENTRIES_MIN
    local rows_left = block.cx.rows - search_rows(block) - keep
-   local cap = if block.floating then FLOATING_ART_PX else ART_PX
+   local cap = if block.floating and not cover_only then FLOATING_ART_PX else ART_PX
    local fit = math.min(cap, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
-   local px = fit - fit % ART_STEP_PX
-   return if px >= (if block.glance then GLANCE_ART_MIN_PX else ART_MIN_PX) then px else nil
+   return stepped(fit, if block.glance then GLANCE_ART_MIN_PX else ART_MIN_PX)
 end
 
 local function art_rows(block: Block): number
@@ -754,14 +795,15 @@ local function big_cover(block: Block, s: Snapshot): boolean
    return s.cover ~= nil and block.blob ~= nil and art_px(block) ~= nil
 end
 
--- Entries the list under the player has room for: whatever height Tern gives the block, less the
--- player (and the big cover), so the list fills it.
+-- Entries the list has room for: the block's height less the player (and the big cover, unless the
+-- list sits beside it). The list clips anything past this, so it's the most worth building.
 local function panel_rows(block: Block): number
    local s = snap
    if s and big_cover(block, s) then
-      return math.max(0, block.cx.rows - art_rows(block) - LIST_CHROME_ROWS - search_rows(block))
+      local above = if side_px(block) then 0 else art_rows(block)
+      return math.max(0, block.cx.rows - above - LIST_CHROME_ROWS - search_rows(block))
    end
-   return math.max(0, block.cx.rows - PANEL_CHROME_ROWS - (if block.search then 1 else 0))
+   return math.max(0, block.cx.rows - PANEL_CHROME_ROWS - search_rows(block))
 end
 
 local function row_button(key: string, label: string, action: string): Node
@@ -782,16 +824,17 @@ local function level_meter(key: string, role: string): Node
    })
 end
 
--- The queue around the current track, one line each, the current one highlighted; it scrolls to
--- keep the current track near the top. Clicking a line plays it; ↑ ↓ ✕ move or drop it.
+-- The queue around the current track, one line each; it scrolls to keep the current track near the
+-- top. Clicking a line plays it; hover buttons play it next, move it, drop it or copy its link. The
+-- list fills the block's rows and the stylesheet clips what doesn't fit.
 local function queue_view(block: Block, s: Snapshot): Node?
    local queue = s.queue
    if queue == nil or #queue.items == 0 then
       return nil
    end
    local current = queue.current + 1
-   local room = panel_rows(block)
-   local last = math.min(#queue.items, room)
+   -- A couple more than the estimate, so a smaller font fills the gap instead of leaving one.
+   local last = math.min(#queue.items, panel_rows(block) + 2)
    local lines: { Node } = {
       with(ui.text({
          ui.span("Queue", "strong"),
@@ -816,7 +859,7 @@ local function queue_view(block: Block, s: Snapshot): Node?
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
       -- A column for the marker: the level meter on the current entry, empty on the others so the
-      -- titles line up.
+      -- titles line up. The current entry is marked like "now" everywhere: accent text and the meter.
       local marker = if is_current then level_meter("marker", "tidal-marker") else with(ui.text(""), { key = "marker", role = "tidal-marker" })
       local row: { Node } = {
          marker,
@@ -826,32 +869,22 @@ local function queue_view(block: Block, s: Snapshot): Node?
             actions = if is_current then nil else { click = "jump=" .. tostring(index_of(i)) },
          }),
       }
-      -- Every entry, played or not, can give its share link.
-      table.insert(row, row_button("link", "link", "qshare=" .. tostring(i)))
+      if i > current + 1 then
+         -- Straight to the front: plays after the current song.
+         table.insert(row, row_button("tonext", "next", "qmove=" .. tostring(index_of(i)) .. ":" .. tostring(queue.position + 1)))
+         table.insert(row, row_button("up", "↑", "qmove=" .. tostring(index_of(i)) .. ":" .. tostring(index_of(i) - 1)))
+      end
       if i > current then
-         -- Upcoming entries can be reordered among themselves or dropped.
-         if i > current + 1 then
-            table.insert(row, row_button("up", "↑", "qmove=" .. tostring(index_of(i)) .. ":" .. tostring(index_of(i) - 1)))
-         end
          if index_of(i) + 1 < queue.total then
             table.insert(row, row_button("down", "↓", "qmove=" .. tostring(index_of(i)) .. ":" .. tostring(index_of(i) + 1)))
          end
          table.insert(row, row_button("remove", "✕", "qremove=" .. tostring(i)))
       end
-      table.insert(lines, with(ui.row(row), {
-         key = item.uid or ("q" .. i),
-         role = if is_current then "tidal-row tidal-selected" else "tidal-row tidal-result",
-         tone = if is_current then "accent" else nil,
-      }))
+      -- Every entry, played or not, can give its share link.
+      table.insert(row, row_button("link", "link", "qshare=" .. tostring(i)))
+      table.insert(lines, with(ui.row(row), { key = item.uid or ("q" .. i), role = "tidal-row tidal-result" }))
    end
-   local hidden = queue.total - (queue.position - queue.current) - last
-   if hidden > 0 then
-      table.insert(lines, with(ui.text({ ui.span(string.format("  +%d more", hidden), "dim") }), {
-         key = "more",
-         role = "tidal-line",
-      }))
-   end
-   return with(ui.col(lines), { key = "queue", role = "tidal-search tidal-queue" })
+   return with(ui.col(lines), { key = "queue", role = "tidal-search tidal-queue tidal-list" })
 end
 
 -- The current track's synced lyrics and the index of the line being sung (0 before the first),
@@ -894,13 +927,16 @@ local function lyric_strip(s: Snapshot): Node?
 end
 
 -- The current track's lyrics. Synced lyrics follow the song: the line being sung in the accent
--- colour, the block's rows centred on it; plain lyrics show from the top.
+-- colour, near the top third of the list; clicking a line goes there. Plain lyrics (no timing) show
+-- from the top and can't be clicked; the heading says which kind these are.
 local function lyrics_view(block: Block, s: Snapshot): Node
    local room = panel_rows(block)
    local track = s.track :: link.Track
    local l = lyrics
+   local synced, now = synced_lyrics(s)
+   local kind = if synced then "synced · click a line to go there" elseif l and l.text then "not synced" else ""
    local lines: { Node } = {
-      with(ui.text({ ui.span("Lyrics", "strong"), ui.span("  " .. track.title, "dim") }), {
+      with(ui.text({ ui.span("Lyrics", "strong"), ui.span("  " .. track.title, "dim"), ui.span(if kind ~= "" then "  · " .. kind else "", "dim") }), {
          key = "heading",
          role = "tidal-line tidal-queue-heading",
       }),
@@ -908,21 +944,18 @@ local function lyrics_view(block: Block, s: Snapshot): Node
    local function note(text: string)
       table.insert(lines, with(ui.text({ ui.span("  " .. text, "dim") }), { key = "note", role = "tidal-line" }))
    end
-   local synced, now = synced_lyrics(s)
    if l == nil or l.track ~= track.id or l.waiting then
       note("loading…")
    elseif l.error then
       note(l.error)
    elseif synced then
       local first = math.clamp(now - math.floor(room / 3), 1, math.max(1, #synced - room + 1))
-      for i = first, math.min(#synced, first + room - 1) do
+      for i = first, math.min(#synced, first + room + 1) do
          local line = synced[i]
          local text = if line.text == "" then "♪" else line.text
          table.insert(lines, with(ui.text({ ui.span(text, if i == now then "strong" elseif i < now then "dim" else nil) }), {
             key = "l" .. i,
-            role = if i == now then "tidal-line tidal-lyric tidal-selected tidal-now" else "tidal-line tidal-lyric",
-            tone = if i == now then "accent" else nil,
-            -- Clicking a line goes to it.
+            role = if i == now then "tidal-line tidal-lyric tidal-now" else "tidal-line tidal-lyric",
             actions = { click = "lyricseek=" .. tostring(line.ms) },
          }))
       end
@@ -930,16 +963,52 @@ local function lyrics_view(block: Block, s: Snapshot): Node
       local count = 0
       for line in string.gmatch((l.text :: string) .. "\n", "([^\n]*)\n") do
          count += 1
-         if count > room then
-            note("…")
+         if count > room + 2 then
             break
          end
-         table.insert(lines, with(ui.text({ ui.span(if line == "" then " " else line) }), { key = "l" .. count, role = "tidal-line tidal-lyric" }))
+         table.insert(lines, with(ui.text({ ui.span(if line == "" then " " else line) }), { key = "l" .. count, role = "tidal-line tidal-lyric-plain" }))
       end
    else
       note("TIDAL has no lyrics for this track")
    end
-   return with(ui.col(lines), { key = "lyrics", role = "tidal-search tidal-queue" })
+   return with(ui.col(lines), { key = "lyrics", role = "tidal-search tidal-queue tidal-list" })
+end
+
+-- What every control does and the keys, in place of the queue (`?` or the help button).
+local HELP_CONTROLS = {
+   { "frame-prev", "previous · next · play / pause", "p n space" },
+   { "swap", "shuffle", "s" },
+   { "repeat", "repeat (off → all → one)", "r" },
+   { "broadcast", "track radio after this song", "" },
+   { "sparkle", "Daily Discovery after this song", "" },
+   { "text-quote", "lyrics instead of the queue", "y" },
+   { "moon", "sleep timer", "t" },
+   { "wave", "mute; click the number for 10 / 25 / 50", "m  + -" },
+   { "search", "search", "/ f" },
+}
+local HELP_KEYS = "←→ 10 s · 0–9 jump · l like · a artist · b album · o open TIDAL · ? help · esc closes"
+
+local function help_view(s: Snapshot?): Node
+   local lines: { Node } = {
+      with(ui.text({ ui.span("Controls", "strong"), ui.span("  ? closes", "dim") }), { key = "heading", role = "tidal-line tidal-queue-heading" }),
+   }
+   local function row(key: string, icon: string, text: string, keys: string, tone: string?)
+      table.insert(lines, with(ui.row({
+         with(ui.row({ ui.node("icon", { name = icon }) }), { key = "icon", role = "tidal-help-icon", tone = tone }),
+         with(ui.text({ ui.span(text), ui.span(if keys ~= "" then "  " .. keys else "", "dim") }), { key = "text", role = "tidal-line" }),
+      }), { key = key, role = "tidal-help-row" }))
+   end
+   for i, entry in HELP_CONTROLS do
+      row("c" .. i, entry[1], entry[2], entry[3])
+   end
+   -- The quality icons, the current one named in full.
+   for _, level in { "HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW" } do
+      local current = s ~= nil and s.quality == level
+      local text = QUALITY_NAME[level] .. (if current and s and s.format then " — now: " .. s.format elseif current then " — now" else "")
+      row("q" .. level, QUALITY_ICON[level], text, "", if level == "HI_RES_LOSSLESS" then "accent" else nil)
+   end
+   table.insert(lines, with(ui.text({ ui.span(HELP_KEYS, "dim") }), { key = "keys", role = "tidal-line" }))
+   return with(ui.col(lines), { key = "help", role = "tidal-search tidal-queue tidal-list" })
 end
 
 local function view(block: Block): BlockView
@@ -966,7 +1035,7 @@ local function view(block: Block): BlockView
    elseif block.glance and not big_cover(block, s) then
       return { main = ui.col({ glance_view(block, s) }) }
    elseif block.glance then
-      -- Unfocused floating card: the title and artist over the cover (below), the format on its corner.
+      -- Unfocused floating card: the title and artist over the cover (below), the quality on its corner.
       local track = s.track :: link.Track
       local lines: { Node } = {
          with(ui.text({ ui.span(track.title, "strong") }), { key = "title", role = "tidal-line tidal-glance-title" }),
@@ -981,85 +1050,115 @@ local function view(block: Block): BlockView
    local st = block.search
    -- With a big cover, the player sits over its lower part (see `big_cover`).
    local big = s ~= nil and big_cover(block, s)
-   local parts: { Node } = {}
+   local side = big and side_px(block) ~= nil
+   local top: Node = main
    if s and big then
       local art: { Node } = {
          with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), { key = "image", role = "tidal-art-image" }),
       }
-      -- The stream format sits on the cover's top corner, clear of the player. Its backing follows
+      -- The quality icon sits on the cover's top corner, clear of the player. Its backing follows
       -- the corner's tone (styles/player.css picks the accent or the panel colour, whichever stands
       -- out more against it in the current theme).
       local tone = s.cover and s.cover.tone
-      local badge = format_badge(s, if tone then "tidal-art-badge tidal-on-" .. tone else "tidal-art-badge")
+      local badge = quality_icon(s, if tone then "tidal-art-badge tidal-on-" .. tone else "tidal-art-badge")
       if badge then
          table.insert(art, badge)
       end
-      -- A floating card's cover shows how far the song is as a thin line along its top edge.
+      -- A floating card's cover shows how far the song is as a thin line along its top edge; with
+      -- focus, clicking it seeks.
       if block.floating then
          local length = (s.track :: link.Track).length_ms
          local fraction = if length and length > 0 then position() / length else 0
-         table.insert(art, with(ui.progress(fraction, ""), { key = "progress", role = "tidal-art-progress" }))
+         if block.glance then
+            table.insert(art, with(ui.progress(fraction, ""), { key = "progress", role = "tidal-art-progress tidal-thin" }))
+         else
+            table.insert(art, seek_bar(block, s, fraction, "tidal-art-progress"))
+         end
       end
       -- With lyrics on, a floating card sings them over its cover, above the title (or the player).
       local over: { Node } = {}
-      local strip = if block.floating and link.setting("lyrics") then lyric_strip(s) else nil
+      local strip = if block.floating and lyrics_on(block) then lyric_strip(s) else nil
       if strip then
          table.insert(over, strip)
       end
       table.insert(over, main)
+      -- A light cover gets a darker fade behind the text.
+      local strong = s.cover and s.cover.tone_bottom == "light"
       table.insert(art, with(ui.col(over), {
          key = "overlay",
-         role = if block.glance then "tidal-overlay tidal-overlay-title" else "tidal-overlay",
+         role = (if block.glance then "tidal-overlay tidal-overlay-title" else "tidal-overlay") .. (if strong then " tidal-overlay-strong" else ""),
       }))
       -- Floating, the cover sits at the card's left edge like the rest of its content.
       local role = "tidal-art tidal-art-w" .. tostring(art_px(block)) .. (if block.floating then " tidal-art-left" else "")
-      table.insert(parts, with(ui.col(art), { key = "art", role = role }))
-   else
-      table.insert(parts, main)
+      top = with(ui.col(art), { key = "art", role = role })
    end
+
+   -- Under (or beside) the player: search results or a list while there are any; otherwise the
+   -- help, the lyrics or the queue, in whatever room is left. An unfocused card shows the queue only
+   -- under a big cover, and not when you chose cover only. A floating card with a big cover has its
+   -- lyrics over the cover, so the queue stays below.
+   local panel: { Node } = {}
    if st and not block.glance then
       local now: search.Playing = if s
          then { track = s.track and s.track.id, type = s.source_type, id = s.source_id, mix = s.source_mix, name = s.source }
          else {}
-      table.insert(parts, search.view(st, panel_rows(block), now))
+      table.insert(panel, search.view(st, panel_rows(block), now))
    end
-   -- Results or a list take the space while there are any; otherwise the player shows the lyrics or
-   -- the queue in whatever rows are left, docked or floating. An unfocused card shows the queue only
-   -- under a big cover (its cover stops at 320 px, so a bigger card has rows to spare); its compact
-   -- preview already lists what's next.
-   -- A floating card with a big cover has its lyrics over the cover, so the queue stays below.
-   if (big or not block.glance) and not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
-      if link.setting("lyrics") and not (block.floating and big) then
-         table.insert(parts, lyrics_view(block, s))
+   local cover_only = block.glance and link.setting("glance_cover_only")
+   if (big or not block.glance) and not cover_only and not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
+      if block.help and not block.glance then
+         table.insert(panel, help_view(s))
+      elseif lyrics_on(block) and not (block.floating and big) then
+         table.insert(panel, lyrics_view(block, s))
       else
          local queue = queue_view(block, s)
          if queue then
-            table.insert(parts, queue)
+            table.insert(panel, queue)
          end
       end
    end
-   -- A docked block wider than the cover centres everything in a column as wide as the cover; a
-   -- narrower one, and a floating player, keep it left-aligned at the block's width.
-   local px = if big then art_px(block) else nil
-   local wide = px ~= nil and not block.floating and block.cx.cols * CELL_W_PX > px + 2 * CELL_W_PX
-   local result: BlockView = {
-      main = ui.col({
-         with(ui.col(parts), {
-            key = "stage",
-            role = if wide then "tidal-stage tidal-centered tidal-art-w" .. tostring(px) else "tidal-stage",
-         }),
-      }),
-   }
+
+   local stage: Node
+   if side then
+      -- Wide docked block: the cover (with the player over it) on the left, the list on the right.
+      stage = with(ui.row({
+         top,
+         with(ui.col(panel), { key = "panel", role = "tidal-side-panel" }),
+      }), { key = "stage", role = "tidal-stage tidal-side" })
+   else
+      local parts: { Node } = { top }
+      for _, part in panel do
+         table.insert(parts, part)
+      end
+      stage = with(ui.col(parts), { key = "stage", role = "tidal-stage" })
+   end
+   local result: BlockView = { main = ui.col({ stage }) }
+
+   -- Below everything: the last error (until dismissed) and passing notices.
+   local dock: { Node } = {}
+   if block.problem then
+      table.insert(dock, with(ui.row({
+         with(ui.text({ ui.span(block.problem :: string) }), { key = "text", role = "tidal-line" }),
+         row_button("dismiss", "✕", "dismiss"),
+      }), { key = "problem", role = "tidal-problem", tone = "error" }))
+   end
    if notice then
-      result.dock = ui.col({ with(ui.text({ ui.span(notice.text, "muted") }), { key = "notice" }) })
+      table.insert(dock, with(ui.text({ ui.span(notice.text, "muted") }), { key = "notice" }))
+   end
+   if #dock > 0 then
+      result.dock = ui.col(dock)
    end
    return result
 end
 
--- Fetches the current track's lyrics while lyrics are shown, and picks up the answer.
+-- Fetches the current track's lyrics while any player shows them, and picks up the answer.
 local function update_lyrics()
    local s = snap
-   if not link.setting("lyrics") or s == nil or s.track == nil or s.track.id == nil then
+   local wanted = false
+   for _, block in blocks do
+      wanted = wanted or lyrics_on(block)
+   end
+   if not wanted or s == nil or s.track == nil or s.track.id == nil then
       return
    end
    local id = s.track.id :: string
@@ -1089,11 +1188,12 @@ local function update_lyrics()
    l.text = answer.text
 end
 
--- What the view depends on; panes re-render only when it changes.
+-- What the views depend on (apart from each pane's own state); panes re-render only when it
+-- changes. The snapshot's part is its text as read, so nothing is re-encoded each tick.
 local function signature(): string
    local s = snap
    local parts = { if notice then notice.text else "", bridge_problem or "", tostring(playing()) }
-   table.insert(parts, tostring(link.setting("lyrics")))
+   table.insert(parts, tostring(link.setting("glance_cover_only")))
    local l = lyrics
    if l then
       table.insert(parts, l.track .. tostring(l.waiting) .. tostring(l.error) .. tostring(l.lines ~= nil))
@@ -1102,10 +1202,7 @@ local function signature(): string
       table.insert(parts, tostring((s.sleep.at_s - os.time()) // 60))
    end
    if s then
-      local beat = s.beat
-      s.beat = 0
-      table.insert(parts, tern.json.encode(s))
-      s.beat = beat
+      table.insert(parts, link.signature())
       if playing() then
          table.insert(parts, tostring(position() // 1000))
       end
@@ -1115,6 +1212,10 @@ local function signature(): string
    end
    return table.concat(parts, "\u{1f}")
 end
+
+-- How many times the page had queued Daily Discovery by itself when last seen (nil before the first
+-- snapshot, so a count from before the plugin loaded isn't announced).
+local auto_seen: number? = nil
 
 -- Loop ------------------------------------------------------------------------------------------
 
@@ -1142,6 +1243,11 @@ local function tick()
       end
       load_cover(latest)
       take_reply(latest)
+      local auto = latest.auto_discovery or 0
+      if auto_seen and auto > auto_seen then
+         say("Nothing was queued after this song, so Daily Discovery follows it (off in the palette)")
+      end
+      auto_seen = auto
    end
    update_lyrics()
    if notice and tern.now() > notice.expires then
@@ -1184,10 +1290,14 @@ local function tick()
          end
          block.signature = ""
       end
-      local block_sig = if block.search then sig .. "\u{1f}" .. search.signature(block.search) else sig
-      if glance then
-         block_sig ..= "\u{1f}glance"
-      end
+      local own = table.concat({
+         tostring(lyrics_on(block)),
+         tostring(block.help),
+         tostring(block.sleep_menu),
+         block.problem or "",
+         if glance then "glance" else "",
+      }, "\u{1f}")
+      local block_sig = sig .. "\u{1f}" .. own .. (if block.search then "\u{1f}" .. search.signature(block.search) else "")
       if block.signature ~= block_sig then
          block.signature = block_sig
          block.cx:render()
@@ -1205,6 +1315,8 @@ tern.block.define("player", {
          glance = pane_view.floating and not pane_view.focused,
          focused = pane_view.focused,
          floating = pane_view.floating,
+         help = false,
+         sleep_menu = false,
       }
       blocks[cx.pane] = block
       snap = snap or link.read()
@@ -1290,6 +1402,13 @@ tern.block.define("player", {
          act(block, "sleep")
       elseif typed == "o" then
          act(block, "launch")
+      elseif typed == "?" then
+         act(block, "help")
+      elseif key.name == "escape" or key.name == "esc" then
+         if not (block.help or block.sleep_menu) then
+            return false
+         end
+         block.help, block.sleep_menu = false, false
       elseif string.match(typed, "^%d$") and s and s.track and s.track.length_ms then
          seek(block, (tonumber(typed) :: number) / 10 * s.track.length_ms)
       else
@@ -1333,12 +1452,13 @@ tern.block.define("player", {
          end
       elseif ev.act == "lyricseek" and index then
          seek(block, index)
+      elseif ev.act == "sleepset" and type(value) == "string" then
+         set_sleep(block, value)
       elseif ev.act == "seekto" and index then
          local length = snap and snap.track and snap.track.length_ms
          if length then
             -- The cell's middle, so the first and last cells aren't 0 % and 100 % exactly.
-            local count = math.clamp(block.cx.cols - 24, 16, 160)
-            seek(block, (index - 0.5) / count * length)
+            seek(block, (index - 0.5) / seek_cells(block) * length)
          end
       else
          act(block, ev.act)

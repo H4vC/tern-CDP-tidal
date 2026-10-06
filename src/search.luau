@@ -181,8 +181,8 @@ function search.key(st: State, key: Key): (string | Pick | boolean)
       return true
    end
    local text = key.text or (if name == "space" then " " else nil)
-   -- An empty query has nothing to separate: space stays play/pause.
-   if text == " " and st.query == "" then
+   -- An empty query has nothing to separate: space stays play/pause, and ? opens the player's help.
+   if (text == " " or text == "?") and st.query == "" then
       return false
    end
    if text and text ~= "" then
@@ -257,6 +257,7 @@ local function heading(st: State, now: Playing): Node
    local status = if st.waiting then "searching…"
       elseif st.error then st.error
       elseif st.sent ~= "" and #st.items == 0 then "no results"
+      elseif st.query == "" and #st.items == 0 then "type to search · esc for the letter shortcuts · ? help"
       elseif short and #st.items == 0 then "results from 3 letters · enter searches now"
       else "enter plays · shift+enter next · ctrl+enter queue · esc closes"
    return with(ui.text({
@@ -300,7 +301,6 @@ function search.view(st: State, rows: number, now: Playing): Node
       table.insert(lines, with(ui.row(row), {
          key = "r" .. i,
          role = if selected then "tidal-row tidal-result tidal-selected" else "tidal-row tidal-result",
-         tone = if selected then "accent" else nil,
       }))
    end
    if #st.items > shown then
