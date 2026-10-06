@@ -77,7 +77,8 @@ export type Snapshot = {
       ["repeat"]: boolean,
       volume: boolean,
    },
-   cover: { key: string, file: string?, url: string? }?,
+   -- `tone`: whether the cover's top-right corner (under the format badge) is light or dark.
+   cover: { key: string, file: string?, url: string?, tone: string? }?,
    -- TIDAL's stream quality (LOSSLESS, HI_RES_LOSSLESS, …).
    quality: string?,
    -- What the player streams: "24-bit 48 kHz FLAC".

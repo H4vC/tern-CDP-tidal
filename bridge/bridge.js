@@ -532,7 +532,7 @@ function publish() {
 			queue: s.queue || undefined,
 			can: { toggle: true, next: true, prev: true, seek: !!track.length_ms, shuffle: true, repeat: true, volume: true },
 		});
-		if (track.cover) snap.cover = { key: track.cover, url: track.cover };
+		if (track.cover) snap.cover = { key: track.cover, url: track.cover, tone: track.cover_tone || undefined };
 	} else {
 		if (lastSync) {
 			lastSync = '';

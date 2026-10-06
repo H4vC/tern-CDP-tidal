@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 19;
+	const VERSION = 20;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -31,6 +31,33 @@
 	let last = '';
 
 	const coverUrl = (id) => (id ? 'https://resources.tidal.com/images/' + id.replace(/-/g, '/') + '/640x640.jpg' : null);
+
+	// How bright the cover's top-right corner is, where the stream format badge sits: 'light' or
+	// 'dark', by cover URL; 'pending' while it's being measured, null if it couldn't be.
+	const coverTones = new Map();
+
+	const coverTone = (url) => {
+		if (!url) return null;
+		if (coverTones.has(url)) {
+			const tone = coverTones.get(url);
+			return tone === 'pending' ? null : tone;
+		}
+		coverTones.set(url, 'pending');
+		(async () => {
+			const bitmap = await createImageBitmap(await (await fetch(url)).blob());
+			const canvas = new OffscreenCanvas(32, 32);
+			const context = canvas.getContext('2d');
+			context.drawImage(bitmap, 0, 0, 32, 32);
+			// The badge covers about the right half of the top tenth.
+			const pixels = context.getImageData(16, 0, 16, 4).data;
+			let sum = 0;
+			for (let i = 0; i < pixels.length; i += 4) sum += 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+			coverTones.set(url, sum / (pixels.length / 4) / 255 > 0.45 ? 'light' : 'dark');
+		})()
+			.catch(() => coverTones.set(url, null))
+			.then(() => window.__ternTidalEmit && window.__ternTidalEmit());
+		return null;
+	};
 
 	const artists = (media) => (media.artists || []).map((a) => a.name).join(', ');
 	const titled = (media) => media.title + (media.version ? ' (' + media.version + ')' : '');
@@ -153,6 +180,8 @@
 						album: (media.album && media.album.title) || '',
 						length_ms: Math.round((context.actualDuration || media.duration || 0) * 1000) || null,
 						cover: coverUrl(media.album && media.album.cover),
+						// Whether the stream format badge sits on a light or dark corner of the cover.
+						cover_tone: coverTone(coverUrl(media.album && media.album.cover)),
 						// For the artist and album lists and radio.
 						artist_id: mainArtistId(media),
 						album_id: media.album && media.album.id ? String(media.album.id) : null,

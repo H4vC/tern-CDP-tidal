@@ -57,14 +57,15 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
   what comes next; click a line to play it, hover for ↑ ↓ ✕ to move or drop it, or **link** to copy
   the track's share address (tidal.com/track/…). Synced lyrics follow the song; click a line to
   jump there.
-- **Floating and not focused:** a preview with play controls, artist · album, the timeline, the
-  stream format and what plays next, then as many upcoming tracks as the card has room for.
+- **Floating and not focused:** just the cover with the title on it, filling the card. A card too
+  small for that shows a compact preview (title, artist · album, the timeline and what plays next).
 - **Big cover:** the album cover shows at the largest size that fits (up to 640 px), scaling smoothly
   as you resize the block, with the title and heart, artist, album, controls and progress bar over
-  its lower part on a dark fade and the stream format on its top corner. Docked, it leaves room for
-  some of the queue below; on a floating card it may take the whole height, and the queue fills any
-  rows left. A block too small for a 160 px cover keeps the compact layout. A docked block wider
+  its lower part on a dark fade. The cover shrinks to keep at least 3 queue entries in view below
+  it; a block too small for a 160 px cover that way keeps the compact layout. A docked block wider
   than the cover centres it all in a column as wide as the cover. Colours follow your Tern theme.
+- **Stream format badge** on the cover's top corner: on the panel colour, or on the accent when the
+  cover's corner is as light (or as dark) as the panel, so it always stands out.
 
 ## Controls
 

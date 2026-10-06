@@ -154,6 +154,18 @@
 		width: 100%;
 		margin-bottom: 8px;
 	}
+	[data-role~='tidal-art-w64'] { max-width: 64px; }
+	[data-role~='tidal-art-w72'] { max-width: 72px; }
+	[data-role~='tidal-art-w80'] { max-width: 80px; }
+	[data-role~='tidal-art-w88'] { max-width: 88px; }
+	[data-role~='tidal-art-w96'] { max-width: 96px; }
+	[data-role~='tidal-art-w104'] { max-width: 104px; }
+	[data-role~='tidal-art-w112'] { max-width: 112px; }
+	[data-role~='tidal-art-w120'] { max-width: 120px; }
+	[data-role~='tidal-art-w128'] { max-width: 128px; }
+	[data-role~='tidal-art-w136'] { max-width: 136px; }
+	[data-role~='tidal-art-w144'] { max-width: 144px; }
+	[data-role~='tidal-art-w152'] { max-width: 152px; }
 	[data-role~='tidal-art-w160'] { max-width: 160px; }
 	[data-role~='tidal-art-w168'] { max-width: 168px; }
 	[data-role~='tidal-art-w176'] { max-width: 176px; }
@@ -232,6 +244,23 @@
 		z-index: 2;
 		background: var(--panel);
 	}
+	/* On a cover whose corner is the same lightness as the panel, the panel backing would vanish: the
+	   badge takes the accent instead (panel-coloured text). `light-dark()` picks per theme: a dark
+	   theme's panel is dark, a light theme's light. */
+	[data-role~='tidal-art-badge'][data-role~='tidal-on-dark'] {
+		background: light-dark(var(--panel), var(--accent));
+	}
+	[data-role~='tidal-art-badge'][data-role~='tidal-on-dark'],
+	[data-role~='tidal-art-badge'][data-role~='tidal-on-dark'] * {
+		color: light-dark(var(--t1), var(--panel));
+	}
+	[data-role~='tidal-art-badge'][data-role~='tidal-on-light'] {
+		background: light-dark(var(--accent), var(--panel));
+	}
+	[data-role~='tidal-art-badge'][data-role~='tidal-on-light'],
+	[data-role~='tidal-art-badge'][data-role~='tidal-on-light'] * {
+		color: light-dark(var(--panel), var(--t1));
+	}
 	/* The player over the cover's lower part, on a fade to dark so it reads on any art. */
 	[data-role~='tidal-overlay'] {
 		position: absolute;
@@ -242,6 +271,13 @@
 		padding: 28px 10px 8px;
 		background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.72) 40%, rgba(0, 0, 0, 0.85));
 		color: rgba(255, 255, 255, 0.92);
+	}
+	/* An unfocused floating card: just the title on a shorter fade. */
+	[data-role~='tidal-overlay-title'] {
+		padding: 16px 8px 6px;
+	}
+	[data-role~='tidal-overlay-title'] [data-role~='tidal-glance-title'] {
+		flex: none;
 	}
 	[data-role~='tidal-overlay'] * {
 		color: rgba(255, 255, 255, 0.92);

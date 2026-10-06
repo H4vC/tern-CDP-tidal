@@ -713,23 +713,27 @@ local ART_STEP_PX = 8
 local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
--- Under the big cover (the player sits over it): the list's heading and some air, then list
--- entries. Docked, the cover leaves room for some of the queue; a floating card is for the cover,
--- so it may take the whole height and the queue gets whatever rows are left.
+-- Under the big cover (the player sits over it): the list's heading and some air, then at least
+-- this many list entries, docked or floating; the cover shrinks to leave them. A taller block gives
+-- the cover its room first, then the list any rows left.
 local LIST_CHROME_ROWS = 2
-local LIST_ENTRIES_DOCKED = 6
+local LIST_ENTRIES_MIN = 3
 
 local function search_rows(block: Block): number
    return if block.search then 1 else 0
 end
 
+-- An unfocused floating card shows just the cover with the title on it, so the cover takes the
+-- whole card and can be smaller (one line over it, not the player).
+local GLANCE_ART_MIN_PX = 64
+
 -- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
 local function art_px(block: Block): number?
-   local keep = if block.floating then 0 else LIST_CHROME_ROWS + LIST_ENTRIES_DOCKED
+   local keep = if block.glance then 0 else LIST_CHROME_ROWS + LIST_ENTRIES_MIN
    local rows_left = block.cx.rows - search_rows(block) - keep
    local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
    local px = fit - fit % ART_STEP_PX
-   return if px >= ART_MIN_PX then px else nil
+   return if px >= (if block.glance then GLANCE_ART_MIN_PX else ART_MIN_PX) then px else nil
 end
 
 local function art_rows(block: Block): number
@@ -913,6 +917,9 @@ local function view(block: Block): BlockView
       main = message(block, "Nothing playing", "", { link_button("launch", "Open", "launch") })
    elseif block.glance and not big_cover(block, s) then
       return { main = ui.col({ glance_view(block, s) }) }
+   elseif block.glance then
+      -- Unfocused floating card: only the title, over the cover (below).
+      main = with(ui.text({ ui.span((s.track :: link.Track).title, "strong") }), { key = "title", role = "tidal-line tidal-glance-title" })
    else
       main = now_playing(block, s, big_cover(block, s))
    end
@@ -924,22 +931,28 @@ local function view(block: Block): BlockView
       local art: { Node } = {
          with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), { key = "image", role = "tidal-art-image" }),
       }
-      -- The stream format sits on the cover's top corner, clear of the player.
-      local badge = format_badge(s, "tidal-art-badge")
-      if badge then
+      -- The stream format sits on the cover's top corner, clear of the player. Its backing follows
+      -- the corner's tone (styles/player.css picks the accent or the panel colour, whichever stands
+      -- out more against it in the current theme).
+      local tone = s.cover and s.cover.tone
+      local badge = format_badge(s, if tone then "tidal-art-badge tidal-on-" .. tone else "tidal-art-badge")
+      if badge and not block.glance then
          table.insert(art, badge)
       end
-      table.insert(art, with(ui.col({ main }), { key = "overlay", role = "tidal-overlay" }))
+      table.insert(art, with(ui.col({ main }), {
+         key = "overlay",
+         role = if block.glance then "tidal-overlay tidal-overlay-title" else "tidal-overlay",
+      }))
       table.insert(parts, with(ui.col(art), { key = "art", role = "tidal-art tidal-art-w" .. tostring(art_px(block)) }))
    else
       table.insert(parts, main)
    end
-   if st then
+   if st and not block.glance then
       table.insert(parts, search.view(st, panel_rows(block), s and s.track and s.track.id))
    end
    -- Results or a list take the space while there are any; otherwise the player shows the lyrics or
-   -- the queue in whatever rows are left, docked or floating.
-   if not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
+   -- the queue in whatever rows are left, docked or floating (not on an unfocused card: cover only).
+   if not block.glance and not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
       if link.setting("lyrics") then
          table.insert(parts, lyrics_view(block, s))
       else
