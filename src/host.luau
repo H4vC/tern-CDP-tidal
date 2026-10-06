@@ -754,6 +754,8 @@ local function queue_view(block: Block, s: Snapshot): Node?
             actions = if is_current then nil else { click = "jump=" .. tostring(index_of(i)) },
          }),
       }
+      -- Every entry, played or not, can give its share link.
+      table.insert(row, row_button("link", "link", "qshare=" .. tostring(i)))
       if i > current then
          -- Upcoming entries can be reordered among themselves or dropped.
          if i > current + 1 then
@@ -1157,6 +1159,15 @@ tern.block.define("player", {
          local from, to = string.match(value, "^(%d+):(%d+)$")
          if from and to then
             send(block, "move", from .. " " .. to)
+         end
+      elseif ev.act == "qlink" and item then
+         block.cx:copy(link.share_url(item.kind, item.id))
+         say("Copied the link to " .. item.title)
+      elseif ev.act == "qshare" and index then
+         local entry = snap and snap.queue and snap.queue.items[index]
+         if entry then
+            block.cx:copy(link.share_url("track", entry.id))
+            say("Copied the link to " .. (entry.title or "the track"))
          end
       elseif ev.act == "qremove" and index then
          local entry = snap and snap.queue and snap.queue.items[index]

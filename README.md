@@ -54,8 +54,9 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 - **Progress bar:** click anywhere on it to seek.
 - **Under the player**, in whatever height the block has (docked or floating and focused): the
   queue, or the lyrics. The queue shows a couple of played tracks, the current one highlighted and
-  what comes next; click a line to play it, hover for ↑ ↓ ✕ to move or drop it. Synced lyrics follow
-  the song; click a line to jump there.
+  what comes next; click a line to play it, hover for ↑ ↓ ✕ to move or drop it, or **link** to copy
+  the track's share address (tidal.com/track/…). Synced lyrics follow the song; click a line to
+  jump there.
 - **Floating and not focused:** a preview with play controls, artist · album, the timeline, the
   stream format and what plays next, then as many upcoming tracks as the card has room for.
 - Docked in a tall enough block, the album cover shows as wide as the block above the player;
@@ -85,9 +86,10 @@ work again. Space, the arrows and the number keys work either way.
 **Search** opens under the player: type, and results (tracks, albums, artists, playlists) list one
 per line from the third letter. `↑` `↓` pick; `Enter` or a click plays (replacing the queue, as
 playing from TIDAL's own search does), `Shift+Enter` or **next** plays it after the current track,
-`Ctrl+Enter` or **+queue** adds it to the end. Artist and album lists work the same way, with
-**play all** and, for an artist, **radio**. `Esc` closes. Lookups run inside TIDAL with its own
-sign-in.
+`Ctrl+Enter` or **+queue** adds it to the end, and **link** copies the item's share address. Artist
+and album lists work the same way, with **play all** and, for an artist, **radio**. `Esc` closes.
+Lookups run inside TIDAL with its own sign-in. (Tern gives plugin blocks no right-click menu, so
+the actions are hover buttons.)
 
 **Palette:** Open player, Play/Pause, Next / Previous track, Like, Track radio, Artist radio,
 Toggle shuffle, Cycle repeat, Mute, Sleep in 15 / 30 / 60 minutes, Sleep at the end of this track,

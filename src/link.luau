@@ -93,7 +93,7 @@ export type Snapshot = {
       position: number,
       total: number,
       -- `uid` names the entry for remove; titles are nil until TIDAL loads them.
-      items: { { uid: string, title: string?, artist: string, length_s: number? } },
+      items: { { uid: string, id: string, title: string?, artist: string, length_s: number? } },
    }?,
    reply: { id: string, error: string? }?,
    -- The sleep timer: pauses at `at_s` (unix seconds), or when the current track ends.
@@ -304,6 +304,11 @@ function link.shorten(text: string, chars: number): string
       return text
    end
    return string.sub(text, 1, (utf8.offset(text, chars) :: number) - 1) .. "…"
+end
+
+-- The address TIDAL's own Share button gives for an item (kind: track, album, artist or playlist).
+function link.share_url(kind: string, id: string): string
+   return "https://tidal.com/" .. kind .. "/" .. id
 end
 
 return link

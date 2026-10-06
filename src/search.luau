@@ -280,6 +280,7 @@ function search.view(st: State, rows: number, playing: string?): Node
          table.insert(row, small_button("next", "next", "qnext=" .. i))
          table.insert(row, small_button("last", "+queue", "qlast=" .. i))
       end
+      table.insert(row, small_button("link", "link", "qlink=" .. i))
       table.insert(lines, with(ui.row(row), {
          key = "r" .. i,
          role = if selected then "tidal-row tidal-result tidal-selected" else "tidal-row tidal-result",

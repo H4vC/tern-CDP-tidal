@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 17;
+	const VERSION = 18;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -119,6 +119,7 @@
 			const known = queuedTrack(s, String(elements[i].mediaItemId));
 			items.push({
 				uid: elements[i].uid,
+				id: String(elements[i].mediaItemId),
 				title: known ? known.title : null,
 				artist: known ? known.artist : '',
 				length_s: known ? known.length_s : null,
