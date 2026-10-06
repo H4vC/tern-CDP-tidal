@@ -48,7 +48,7 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 
 - **Title line:** title, then the artist and album (click either for the artist's top 20 tracks or
   the album's tracks), the stream format (e.g. `24-bit 48 kHz FLAC`, orange when hi-res) and a heart
-  to like the track. When the big docked cover shows, the format sits on its corner instead.
+  to like the track. When the big cover shows, the format sits on its corner instead.
 - **Controls:** previous, play/pause, next, shuffle, repeat, track radio, lyrics, sleep timer
   (click to cycle 15 / 30 / 60 minutes / end of track / off), mute and volume.
 - **Progress bar:** click anywhere on it to seek.
@@ -59,8 +59,10 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
   jump there.
 - **Floating and not focused:** a preview with play controls, artist · album, the timeline, the
   stream format and what plays next, then as many upcoming tracks as the card has room for.
-- Docked in a tall enough block, the album cover shows as wide as the block above the player;
-  colours follow your Tern theme.
+- **Big cover:** docked, or floating with focus, in a tall enough block, the album cover shows above
+  the player as wide as the block (up to 640 px). The title and heart, artist, album and controls
+  then take a line each. A block wider than the cover centres it all in a column as wide as the
+  cover. Colours follow your Tern theme.
 
 ## Controls
 

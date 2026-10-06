@@ -145,12 +145,13 @@
 		margin-bottom: 2px;
 	}
 
-	/* Docked: the cover above the player, as wide as the block up to its own size (320 px), centred. */
+	/* Big cover (docked, or floating with focus): above the player, as wide as the block up to its own
+	   size (640 px). */
 	[data-role~='tidal-art'] {
 		position: relative;
 		align-self: center;
 		width: 100%;
-		max-width: 320px;
+		max-width: 640px;
 		margin-bottom: 8px;
 	}
 	[data-role~='tidal-art-image'] {
@@ -169,6 +170,54 @@
 		bottom: 6px;
 		z-index: 1;
 		background: var(--panel);
+	}
+
+	/* Under the big cover: title and heart, artist, album, then the controls, one line each. */
+	[data-role~='tidal-stacked'] {
+		gap: 2px;
+	}
+	[data-role~='tidal-stack'] {
+		gap: 0;
+	}
+	[data-role~='tidal-stack-line'] {
+		align-items: center;
+		gap: 6px;
+	}
+	[data-role~='tidal-stack-line'] [data-role~='tidal-title'] {
+		flex: 0 1 auto;
+	}
+	[data-role~='tidal-stack-name'] {
+		flex: none;
+	}
+	[data-role~='tidal-stack-controls'] {
+		margin: 2px 0;
+	}
+
+	/* A block wider than the cover: everything in a column as wide as the cover, centred. */
+	[data-role~='tidal-stage'] {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	[data-role~='tidal-centered'] {
+		align-self: center;
+		width: 100%;
+		max-width: 640px;
+	}
+	[data-role~='tidal-centered'] [data-role~='tidal-stack'],
+	[data-role~='tidal-centered'] [data-role~='tidal-stacked'] {
+		align-items: center;
+		text-align: center;
+	}
+	[data-role~='tidal-centered'] [data-role~='tidal-stack-line'],
+	[data-role~='tidal-centered'] [data-role~='tidal-stack-controls'] {
+		justify-content: center;
+	}
+	[data-role~='tidal-centered'] [data-role~='tidal-timeline'] {
+		align-self: stretch;
+	}
+	[data-role~='tidal-centered'] [data-role~='tidal-queue-heading'],
+	[data-role~='tidal-centered'] [data-role~='tidal-lyric'] {
+		text-align: center;
 	}
 
 	/* The play / pause marker column: fixed width so every title starts at the same place. */

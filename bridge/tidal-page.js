@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 18;
+	const VERSION = 19;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -30,7 +30,7 @@
 	let store = null;
 	let last = '';
 
-	const coverUrl = (id) => (id ? 'https://resources.tidal.com/images/' + id.replace(/-/g, '/') + '/320x320.jpg' : null);
+	const coverUrl = (id) => (id ? 'https://resources.tidal.com/images/' + id.replace(/-/g, '/') + '/640x640.jpg' : null);
 
 	const artists = (media) => (media.artists || []).map((a) => a.name).join(', ');
 	const titled = (media) => media.title + (media.version ? ' (' + media.version + ')' : '');

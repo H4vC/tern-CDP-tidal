@@ -490,6 +490,40 @@ local function heading(block: Block, s: Snapshot, big: boolean): Node
    return with(ui.row(parts), { key = "heading", role = "tidal-heading" })
 end
 
+-- Under the big cover: the title with the heart, then the artist and the album on their own lines
+-- (each clickable for its track list). The stream format sits on the cover.
+local function stacked_heading(block: Block, s: Snapshot): Node
+   local track = s.track :: link.Track
+   local liked = shown("liked", track.liked) == true
+   local lines: { Node } = {
+      with(ui.row({
+         mark_node(block, "mark") or ui.text(""),
+         with(ui.text({ ui.span(track.title, "strong") }), { key = "title", role = "tidal-line tidal-title" }),
+         with(ui.text({ ui.span(if liked then "♥" else "♡") }), {
+            key = "like",
+            role = "tidal-heart",
+            tone = if liked then "accent" else nil,
+            actions = { click = "like" },
+         }),
+      }), { key = "titleline", role = "tidal-stack-line" }),
+   }
+   if track.artist ~= "" then
+      table.insert(lines, with(ui.text({ ui.span("· " .. track.artist, "muted") }), {
+         key = "artist",
+         role = "tidal-name tidal-stack-name",
+         actions = if track.artist_id then { click = "artist" } else nil,
+      }))
+   end
+   if track.album ~= "" then
+      table.insert(lines, with(ui.text({ ui.span("· " .. track.album, "dim") }), {
+         key = "album",
+         role = "tidal-name tidal-stack-name",
+         actions = if track.album_id then { click = "album" } else nil,
+      }))
+   end
+   return with(ui.col(lines), { key = "heading", role = "tidal-stack" })
+end
+
 -- Minutes left on the sleep timer, or "end" when it waits for the track to end.
 local function sleep_label(s: Snapshot): string?
    local sleep = s.sleep
@@ -503,7 +537,7 @@ local function sleep_label(s: Snapshot): string?
 end
 
 -- Two lines beside the cover: title and controls, then the timeline. With `big`, the cover shows
--- above instead (see `big_cover`), so the row leaves it out.
+-- above instead (see `big_cover`): the heading stacks, the controls get their own row.
 local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    local track = s.track :: link.Track
 
@@ -554,6 +588,13 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
       with(ui.text({ ui.span(link.clock(length), "muted") }), { key = "length", role = "tidal-time" }),
    }), { key = "timeline", role = "tidal-timeline" })
 
+   if big then
+      return with(ui.col({
+         stacked_heading(block, s),
+         with(ui.row(controls), { key = "controls", role = "tidal-controls tidal-stack-controls" }),
+         timeline,
+      }), { key = "player", role = "tidal-body tidal-stacked" })
+   end
    local body = with(ui.col({
       with(ui.row({
          heading(block, s, big),
@@ -561,9 +602,7 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
       }), { key = "top", role = "tidal-top" }),
       timeline,
    }), { key = "body", role = "tidal-body" })
-   -- Built without a nil entry: a hole in the list makes Tern drop every child.
-   local row: { Node } = if big then { body } else { cover_node(block, s), body }
-   return with(ui.row(row), { key = "player", role = "tidal-player" })
+   return with(ui.row({ cover_node(block, s), body }), { key = "player", role = "tidal-player" })
 end
 
 -- A floating player without focus. Tern keeps the card a few lines tall, so it fills them: cover
@@ -663,9 +702,12 @@ end
 -- Rows the block spends on things other than the list below the player: the two-line player, the
 -- list heading and some air.
 local PANEL_CHROME_ROWS = 5
--- The docked cover is as wide as the block up to its own 320 px (styles/player.css), plus an 8 px
--- gap. Tern doesn't say how big a cell is; at its default font one is about 8 × 16 px.
-local ART_PX = 320
+-- The docked cover is as wide as the block up to 640 px (styles/player.css; TIDAL sends it at that
+-- size), plus an 8 px gap. Tern doesn't say how big a cell is; at its default font one is about
+-- 8 × 16 px.
+local ART_PX = 640
+-- Under the big cover the heading stacks: artist and album take a line each, the controls one more.
+local STACK_EXTRA_ROWS = 3
 local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
@@ -676,11 +718,11 @@ local function art_rows(block: Block): number
    return math.ceil((math.min(block.cx.cols * CELL_W_PX, ART_PX) + ART_GAP_PX) / CELL_H_PX)
 end
 
--- Docked, the cover shows above the player (as wide as the block, up to its own size), when the
--- block is tall enough to keep the player and some of the queue in view; otherwise it stays a
--- thumbnail.
+-- The cover shows above the player (as wide as the block, up to its own size), docked or floating
+-- with focus, when the block is tall enough to keep the player and some of the queue in view;
+-- otherwise it stays a thumbnail. (An unfocused floating player shows the glance instead.)
 local function big_cover(block: Block, s: Snapshot): boolean
-   return not block.floating
+   return not block.glance
       and s.cover ~= nil
       and block.blob ~= nil
       and block.cx.rows - art_rows(block) >= MIN_ROWS_BESIDE_ART
@@ -695,7 +737,7 @@ local function panel_rows(block: Block): number
    end
    local s = snap
    if s and big_cover(block, s) then
-      rows -= art_rows(block)
+      rows -= art_rows(block) + STACK_EXTRA_ROWS
    end
    return math.max(0, rows)
 end
@@ -880,8 +922,9 @@ local function view(block: Block): BlockView
          end
       end
    end
-   -- Docked with a big cover, it goes on top, as wide as the block.
-   if s and big_cover(block, s) then
+   -- Docked with a big cover, it goes on top, as wide as the block (up to its own size).
+   local big = s ~= nil and big_cover(block, s)
+   if s and big then
       -- The stream format sits on the cover's corner.
       local art: { Node } = {
          with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), { key = "image", role = "tidal-art-image" }),
@@ -892,7 +935,14 @@ local function view(block: Block): BlockView
       end
       table.insert(parts, 1, with(ui.col(art), { key = "art", role = "tidal-art" }))
    end
-   local result: BlockView = { main = ui.col(parts) }
+   -- A block wider than the cover centres everything in a column as wide as the cover; a narrower
+   -- one keeps it left-aligned at the block's width.
+   local wide = big and block.cx.cols * CELL_W_PX > ART_PX + 2 * CELL_W_PX
+   local result: BlockView = {
+      main = ui.col({
+         with(ui.col(parts), { key = "stage", role = if wide then "tidal-stage tidal-centered" else "tidal-stage" }),
+      }),
+   }
    if notice then
       result.dock = ui.col({ with(ui.text({ ui.span(notice.text, "muted") }), { key = "notice" }) })
    end
