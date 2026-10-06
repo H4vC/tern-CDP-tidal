@@ -703,31 +703,31 @@ end
 -- list heading and some air.
 local PANEL_CHROME_ROWS = 5
 -- The big cover is as wide as the block up to 640 px (TIDAL sends it at that size), shrunk further
--- so the player and some of the list still fit under it, in 40 px steps (`tidal-art-w<px>` in
--- styles/player.css), plus an 8 px gap. Tern doesn't say how big a cell is; at its default font one
--- is about 8 × 16 px.
+-- so some of the list still fits under it. Sizes go in 8 px steps, about one column each
+-- (`tidal-art-w<px>` in styles/player.css), so it scales smoothly as the block resizes; there's an
+-- 8 px gap below. Tern doesn't say how big a cell is; at its default font one is about 8 × 16 px.
 local ART_PX = 640
-local ART_MIN_PX = 120
-local ART_STEP_PX = 40
+-- Small enough for short cards, big enough that the player over it doesn't hide the whole cover.
+local ART_MIN_PX = 160
+local ART_STEP_PX = 8
 local ART_GAP_PX = 8
 local CELL_W_PX = 8
 local CELL_H_PX = 16
--- Under the big cover: the stacked player (title, artist, album, controls, timeline), the list's
--- heading and some air, then list entries. The cover leaves at least this many entries: some of the
--- queue when docked, a few on a floating card.
-local STACKED_PLAYER_ROWS = 5
+-- Under the big cover (the player sits over it): the list's heading and some air, then list
+-- entries. The cover leaves at least this many entries: some of the queue when docked, a few on a
+-- floating card.
 local LIST_CHROME_ROWS = 2
 local LIST_ENTRIES_DOCKED = 6
 local LIST_ENTRIES_FLOATING = 3
 
-local function stacked_rows(block: Block): number
-   return STACKED_PLAYER_ROWS + LIST_CHROME_ROWS + (if block.search then 1 else 0)
+local function below_art_rows(block: Block): number
+   return LIST_CHROME_ROWS + (if block.search then 1 else 0)
 end
 
 -- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
 local function art_px(block: Block): number?
    local entries = if block.floating then LIST_ENTRIES_FLOATING else LIST_ENTRIES_DOCKED
-   local rows_left = block.cx.rows - stacked_rows(block) - entries
+   local rows_left = block.cx.rows - below_art_rows(block) - entries
    local fit = math.min(ART_PX, block.cx.cols * CELL_W_PX, rows_left * CELL_H_PX - ART_GAP_PX)
    local px = fit - fit % ART_STEP_PX
    return if px >= ART_MIN_PX then px else nil
@@ -749,7 +749,7 @@ end
 local function panel_rows(block: Block): number
    local s = snap
    if s and big_cover(block, s) then
-      return math.max(0, block.cx.rows - art_rows(block) - stacked_rows(block))
+      return math.max(0, block.cx.rows - art_rows(block) - below_art_rows(block))
    end
    return math.max(0, block.cx.rows - PANEL_CHROME_ROWS - (if block.search then 1 else 0))
 end
@@ -918,7 +918,23 @@ local function view(block: Block): BlockView
       main = now_playing(block, s, big_cover(block, s))
    end
    local st = block.search
-   local parts: { Node } = { main }
+   -- With a big cover, the player sits over its lower part (see `big_cover`).
+   local big = s ~= nil and big_cover(block, s)
+   local parts: { Node } = {}
+   if s and big then
+      local art: { Node } = {
+         with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), { key = "image", role = "tidal-art-image" }),
+      }
+      -- The stream format sits on the cover's top corner, clear of the player.
+      local badge = format_badge(s, "tidal-art-badge")
+      if badge then
+         table.insert(art, badge)
+      end
+      table.insert(art, with(ui.col({ main }), { key = "overlay", role = "tidal-overlay" }))
+      table.insert(parts, with(ui.col(art), { key = "art", role = "tidal-art tidal-art-w" .. tostring(art_px(block)) }))
+   else
+      table.insert(parts, main)
+   end
    if st then
       table.insert(parts, search.view(st, panel_rows(block), s and s.track and s.track.id))
    end
@@ -933,19 +949,6 @@ local function view(block: Block): BlockView
             table.insert(parts, queue)
          end
       end
-   end
-   -- Docked with a big cover, it goes on top, as wide as the block (up to its own size).
-   local big = s ~= nil and big_cover(block, s)
-   if s and big then
-      -- The stream format sits on the cover's corner.
-      local art: { Node } = {
-         with(ui.node("image", { blob = block.blob, alt = (s.track :: link.Track).album }), { key = "image", role = "tidal-art-image" }),
-      }
-      local badge = format_badge(s, "tidal-art-badge")
-      if badge then
-         table.insert(art, badge)
-      end
-      table.insert(parts, 1, with(ui.col(art), { key = "art", role = "tidal-art tidal-art-w" .. tostring(art_px(block)) }))
    end
    -- A docked block wider than the cover centres everything in a column as wide as the cover; a
    -- narrower one, and a floating player, keep it left-aligned at the block's width.

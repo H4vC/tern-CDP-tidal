@@ -145,27 +145,75 @@
 		margin-bottom: 2px;
 	}
 
-	/* Big cover (docked, or floating with focus): above the player, as wide as the block up to the size
-	   its `tidal-art-w<px>` class sets (host.luau picks the largest that leaves room below). */
+	/* Big cover (docked, or floating): as wide as the block up to the size its `tidal-art-w<px>` class
+	   sets (host.luau picks the largest that leaves room for the list below, in 8 px steps), with the
+	   player over its lower part. */
 	[data-role~='tidal-art'] {
 		position: relative;
 		align-self: center;
 		width: 100%;
 		margin-bottom: 8px;
 	}
-	[data-role~='tidal-art-w120'] { max-width: 120px; }
 	[data-role~='tidal-art-w160'] { max-width: 160px; }
+	[data-role~='tidal-art-w168'] { max-width: 168px; }
+	[data-role~='tidal-art-w176'] { max-width: 176px; }
+	[data-role~='tidal-art-w184'] { max-width: 184px; }
+	[data-role~='tidal-art-w192'] { max-width: 192px; }
 	[data-role~='tidal-art-w200'] { max-width: 200px; }
+	[data-role~='tidal-art-w208'] { max-width: 208px; }
+	[data-role~='tidal-art-w216'] { max-width: 216px; }
+	[data-role~='tidal-art-w224'] { max-width: 224px; }
+	[data-role~='tidal-art-w232'] { max-width: 232px; }
 	[data-role~='tidal-art-w240'] { max-width: 240px; }
+	[data-role~='tidal-art-w248'] { max-width: 248px; }
+	[data-role~='tidal-art-w256'] { max-width: 256px; }
+	[data-role~='tidal-art-w264'] { max-width: 264px; }
+	[data-role~='tidal-art-w272'] { max-width: 272px; }
 	[data-role~='tidal-art-w280'] { max-width: 280px; }
+	[data-role~='tidal-art-w288'] { max-width: 288px; }
+	[data-role~='tidal-art-w296'] { max-width: 296px; }
+	[data-role~='tidal-art-w304'] { max-width: 304px; }
+	[data-role~='tidal-art-w312'] { max-width: 312px; }
 	[data-role~='tidal-art-w320'] { max-width: 320px; }
+	[data-role~='tidal-art-w328'] { max-width: 328px; }
+	[data-role~='tidal-art-w336'] { max-width: 336px; }
+	[data-role~='tidal-art-w344'] { max-width: 344px; }
+	[data-role~='tidal-art-w352'] { max-width: 352px; }
 	[data-role~='tidal-art-w360'] { max-width: 360px; }
+	[data-role~='tidal-art-w368'] { max-width: 368px; }
+	[data-role~='tidal-art-w376'] { max-width: 376px; }
+	[data-role~='tidal-art-w384'] { max-width: 384px; }
+	[data-role~='tidal-art-w392'] { max-width: 392px; }
 	[data-role~='tidal-art-w400'] { max-width: 400px; }
+	[data-role~='tidal-art-w408'] { max-width: 408px; }
+	[data-role~='tidal-art-w416'] { max-width: 416px; }
+	[data-role~='tidal-art-w424'] { max-width: 424px; }
+	[data-role~='tidal-art-w432'] { max-width: 432px; }
 	[data-role~='tidal-art-w440'] { max-width: 440px; }
+	[data-role~='tidal-art-w448'] { max-width: 448px; }
+	[data-role~='tidal-art-w456'] { max-width: 456px; }
+	[data-role~='tidal-art-w464'] { max-width: 464px; }
+	[data-role~='tidal-art-w472'] { max-width: 472px; }
 	[data-role~='tidal-art-w480'] { max-width: 480px; }
+	[data-role~='tidal-art-w488'] { max-width: 488px; }
+	[data-role~='tidal-art-w496'] { max-width: 496px; }
+	[data-role~='tidal-art-w504'] { max-width: 504px; }
+	[data-role~='tidal-art-w512'] { max-width: 512px; }
 	[data-role~='tidal-art-w520'] { max-width: 520px; }
+	[data-role~='tidal-art-w528'] { max-width: 528px; }
+	[data-role~='tidal-art-w536'] { max-width: 536px; }
+	[data-role~='tidal-art-w544'] { max-width: 544px; }
+	[data-role~='tidal-art-w552'] { max-width: 552px; }
 	[data-role~='tidal-art-w560'] { max-width: 560px; }
+	[data-role~='tidal-art-w568'] { max-width: 568px; }
+	[data-role~='tidal-art-w576'] { max-width: 576px; }
+	[data-role~='tidal-art-w584'] { max-width: 584px; }
+	[data-role~='tidal-art-w592'] { max-width: 592px; }
 	[data-role~='tidal-art-w600'] { max-width: 600px; }
+	[data-role~='tidal-art-w608'] { max-width: 608px; }
+	[data-role~='tidal-art-w616'] { max-width: 616px; }
+	[data-role~='tidal-art-w624'] { max-width: 624px; }
+	[data-role~='tidal-art-w632'] { max-width: 632px; }
 	[data-role~='tidal-art-w640'] { max-width: 640px; }
 	[data-role~='tidal-art-image'] {
 		width: 100%;
@@ -176,13 +224,45 @@
 		border-radius: 0;
 		box-shadow: none;
 	}
-	/* The stream format on the cover's bottom-right corner, on a solid backing so it reads on any art. */
+	/* The stream format on the cover's top-right corner, on a solid backing so it reads on any art. */
 	[data-role~='tidal-art-badge'] {
 		position: absolute;
 		right: 6px;
-		bottom: 6px;
-		z-index: 1;
+		top: 6px;
+		z-index: 2;
 		background: var(--panel);
+	}
+	/* The player over the cover's lower part, on a fade to dark so it reads on any art. */
+	[data-role~='tidal-overlay'] {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 1;
+		padding: 28px 10px 8px;
+		background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.72) 40%, rgba(0, 0, 0, 0.85));
+		color: rgba(255, 255, 255, 0.92);
+	}
+	[data-role~='tidal-overlay'] * {
+		color: rgba(255, 255, 255, 0.92);
+	}
+	[data-role~='tidal-overlay'] [data-role~='tidal-stack-name'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-time'] {
+		opacity: 0.75;
+	}
+	[data-role~='tidal-overlay'] [data-tone='accent'],
+	[data-role~='tidal-overlay'] [data-tone='accent'] *,
+	[data-role~='tidal-overlay'] [data-role~='tidal-button-main'] {
+		color: var(--accent);
+	}
+	[data-role~='tidal-overlay'] [data-role~='tidal-seek-line'] {
+		background: rgba(255, 255, 255, 0.3);
+	}
+	[data-role~='tidal-overlay'] [data-role~='tidal-seek-line'][data-tone='accent'] {
+		background: var(--accent);
+	}
+	[data-role~='tidal-overlay'] [data-role~='tidal-button']:hover {
+		background: rgba(255, 255, 255, 0.15);
 	}
 
 	/* Under the big cover: title and heart, artist, album, then the controls, one line each. */
