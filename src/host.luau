@@ -294,7 +294,7 @@ end
 local function act(block: Block, name: string)
    if name == "playpause" then
       toggle(block)
-   elseif name == "next" or name == "prev" or name == "radio" then
+   elseif name == "next" or name == "prev" or name == "radio" or name == "discovery" then
       send(block, name)
    elseif name == "back" then
       seek(block, position() - SEEK_STEP_MS)
@@ -555,8 +555,10 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    if s.can["repeat"] then
       table.insert(controls, button("repeat", "repeat", "repeat", true, (shown("repeat", s["repeat"]) or "off") ~= "off"))
    end
-   -- Starts the current track's radio, replacing the queue.
+   -- Starts the current track's radio, after the song that's playing.
    table.insert(controls, button("radio", "broadcast", "radio", true))
+   -- Your Daily Discovery, after the song that's playing.
+   table.insert(controls, button("discovery", "sparkle", "discovery", true, s.source == "My Daily Discovery"))
    table.insert(controls, button("lyrics", "text-quote", "lyrics", true, link.setting("lyrics")))
    table.insert(controls, button("sleep", "moon", "sleep", true, s.sleep ~= nil))
    local sleeping = sleep_label(s)
@@ -914,7 +916,10 @@ local function view(block: Block): BlockView
    elseif not s.app then
       main = message(block, "TIDAL isn't running", "", { link_button("launch", "Open", "launch") })
    elseif s.track == nil then
-      main = message(block, "Nothing playing", "", { link_button("launch", "Open", "launch") })
+      main = message(block, "Nothing playing", "", {
+         link_button("discovery", "Daily Discovery", "discovery"),
+         link_button("launch", "Open", "launch"),
+      })
    elseif block.glance and not big_cover(block, s) then
       return { main = ui.col({ glance_view(block, s) }) }
    elseif block.glance then

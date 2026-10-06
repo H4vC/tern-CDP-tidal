@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 20;
+	const VERSION = 21;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -326,6 +326,69 @@
 		dispatch('player/PRELOAD_NEXT_ITEM');
 	};
 
+	// Your "My Daily Discovery" mix: its id and title, looked up in your mixes once (it keeps its id
+	// as TIDAL refreshes its tracks each morning).
+	let discovery = null;
+	const discoveryMix = async () => {
+		if (discovery) return discovery;
+		const page = await v1('pages/my_collection_my_mixes?deviceType=DESKTOP&locale=en_US');
+		for (const row of page.rows || []) {
+			for (const module of row.modules || []) {
+				for (const item of (module.pagedList && module.pagedList.items) || []) {
+					if (item.mixType === 'DISCOVERY_MIX') return (discovery = { id: item.id, title: item.title || 'My Daily Discovery' });
+				}
+			}
+		}
+		throw new Error('TIDAL has no Daily Discovery mix for you');
+	};
+
+	// Daily Discovery after the song that's playing (or from its start when nothing is).
+	const playDiscovery = async (s) => {
+		const mix = await discoveryMix();
+		return playRadio(s, mix.id, mix.title);
+	};
+
+	// When nothing is queued after the current song (a song you picked on its own, or the end of a
+	// list) and repeat is off, Daily Discovery follows it, so playback carries on. Once per queue
+	// entry: emptying the rest of the queue by hand during the same song doesn't refill it.
+	// TIDAL fills a list's queue in batches, so the check waits until the queue has stayed that way
+	// for a few seconds.
+	const SETTLE_MS = 3000;
+	let continuedFor = null;
+	let settling = null;
+
+	const lastWithNothingAfter = (s) => {
+		const queue = s.playQueue;
+		const elements = queue.elements || [];
+		const current = elements[queue.currentIndex];
+		if (!current || !currentId(s) || queue.type === 'cloudV2') return null;
+		if (queue.currentIndex < elements.length - 1 || (queue.repeatMode && queue.repeatMode !== 0)) return null;
+		return current.uid;
+	};
+
+	const continueWithDiscovery = () => {
+		const uid = lastWithNothingAfter(store.getState());
+		if (!uid || uid === continuedFor) {
+			if (settling && settling.uid !== uid) {
+				clearTimeout(settling.timer);
+				settling = null;
+			}
+			return;
+		}
+		if (settling && settling.uid === uid) return;
+		if (settling) clearTimeout(settling.timer);
+		settling = {
+			uid,
+			timer: setTimeout(() => {
+				settling = null;
+				const s = store.getState();
+				if (lastWithNothingAfter(s) !== uid || continuedFor === uid) return;
+				continuedFor = uid;
+				playDiscovery(s).catch(() => {});
+			}, SETTLE_MS),
+		};
+	};
+
 	window.__ternTidalCommand = async (op, arg) => {
 		if (!store) throw new Error('TIDAL is still loading');
 		const s = store.getState();
@@ -410,6 +473,9 @@
 				const entity = tracks && tracks[id] && tracks[id].attributes;
 				return playRadio(s, mixId, (item && titled(item)) || (entity && titled(entity)) || 'Track radio');
 			}
+			case 'discovery':
+				// Your Daily Discovery, after the song that's playing.
+				return playDiscovery(s);
 			case 'artist-radio': {
 				// `<artist id>`: the artist's mix, after the song that's playing.
 				const artist = await v1('artists/' + arg);
@@ -501,11 +567,16 @@
 			retry = setTimeout(attach, 500);
 			return;
 		}
-		unsubscribe = store.subscribe(emit);
+		unsubscribe = store.subscribe(() => {
+			emit();
+			continueWithDiscovery();
+		});
 		emit();
+		continueWithDiscovery();
 	};
 	window.__ternTidalDispose = () => {
 		clearTimeout(retry);
+		if (settling) clearTimeout(settling.timer);
 		if (unsubscribe) unsubscribe();
 	};
 	attach();

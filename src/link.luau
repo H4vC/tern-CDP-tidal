@@ -12,7 +12,8 @@
 --                                     once it is 30 s old.
 --
 -- Ops: toggle, pause, next, prev, seek <ms>, shuffle on|off, repeat off|all|one, volume <0-100>,
--- mute on|off, like (current track), radio (current track's), artist-radio <artist id>,
+-- mute on|off, like (current track), radio (current track's), discovery (your Daily Discovery mix;
+-- also queued by itself when nothing follows the current song), artist-radio <artist id>,
 -- play <track|album|artist|playlist> <id>, queue-next|queue-last <track|album> <id>,
 -- jump <queue index>, move <from> <to>, remove <queue uid>, sleep <minutes|track|off>,
 -- search <query> and list <artist|album> <id> (answers go to search.json as {id, query, list?,

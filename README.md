@@ -49,9 +49,13 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
 - **Title line:** title, then the artist and album (click either for the artist's top 20 tracks or
   the album's tracks), the stream format (e.g. `24-bit 48 kHz FLAC`, orange when hi-res) and a heart
   to like the track. When the big cover shows, the format sits on its corner instead.
-- **Controls:** previous, play/pause, next, shuffle, repeat, track radio, lyrics, sleep timer
-  (click to cycle 15 / 30 / 60 minutes / end of track / off), mute and volume.
+- **Controls:** previous, play/pause, next, shuffle, repeat, track radio, Daily Discovery, lyrics,
+  sleep timer (click to cycle 15 / 30 / 60 minutes / end of track / off), mute and volume.
 - **Progress bar:** click anywhere on it to seek.
+- **Daily Discovery:** the ✦ button (or **Daily Discovery** when nothing is playing) plays your "My
+  Daily Discovery" mix after the song that's playing. It's also the default: when nothing is queued
+  after the current song (one you picked on its own, or the end of a list) and repeat is off, Daily
+  Discovery is queued after it, so playback carries on.
 - **Under the player**, in whatever height the block has (docked or floating and focused): the
   queue, or the lyrics. The queue shows a couple of played tracks, the current one highlighted and
   what comes next; click a line to play it, hover for ↑ ↓ ✕ to move or drop it, or **link** to copy
@@ -97,7 +101,8 @@ and album lists work the same way, with **play all** and, for an artist, **radio
 Lookups run inside TIDAL with its own sign-in. (Tern gives plugin blocks no right-click menu, so
 the actions are hover buttons.)
 
-**Palette:** Open player, Play/Pause, Next / Previous track, Like, Track radio, Artist radio,
+**Palette:** Open player, Play/Pause, Next / Previous track, Like, Track radio, Play My Daily
+Discovery, Artist radio,
 Toggle shuffle, Cycle repeat, Mute, Sleep in 15 / 30 / 60 minutes, Sleep at the end of this track,
 Cancel the sleep timer, Show lyrics / queue, and Toggle track-change notifications (a toast when the
 track changes while the player isn't focused; off by default). Clicking the status line segment
