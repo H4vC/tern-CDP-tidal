@@ -415,6 +415,22 @@
 		animation: none;
 		transform: scaleY(0.35);
 	}
+	/* On a floating card's cover: a bigger meter in the top-left corner, on a dark chip so it reads
+	   on any art. */
+	[data-role~='tidal-art-meter'] {
+		position: absolute;
+		left: 6px;
+		top: 6px;
+		z-index: 2;
+		height: 22px;
+		gap: 3px;
+		padding: 4px 6px;
+		background: rgba(0, 0, 0, 0.55);
+	}
+	[data-role~='tidal-art-meter'] [data-role~='tidal-eq-bar'] {
+		width: 3px;
+		height: 14px;
+	}
 	/* The song that's playing, wherever a list shows it: the whole line in the accent colour. */
 	[data-role~='tidal-now'],
 	[data-role~='tidal-now'] * {

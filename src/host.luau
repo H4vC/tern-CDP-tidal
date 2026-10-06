@@ -768,6 +768,20 @@ local function row_button(key: string, label: string, action: string): Node
    return with(ui.text({ ui.span(label) }), { key = key, role = "tidal-row-button", actions = { click = action } })
 end
 
+-- Three accent bars that bounce like a level meter while the song plays and hold still while it's
+-- paused (styles/player.css animates them). `role` adds where they sit.
+local function level_meter(key: string, role: string): Node
+   return with(ui.row({
+      with(ui.text(""), { key = "b1", role = "tidal-eq-bar tidal-eq-1" }),
+      with(ui.text(""), { key = "b2", role = "tidal-eq-bar tidal-eq-2" }),
+      with(ui.text(""), { key = "b3", role = "tidal-eq-bar tidal-eq-3" }),
+   }), {
+      key = key,
+      role = role .. " tidal-eq" .. (if playing() then "" else " tidal-eq-paused"),
+      tone = "accent",
+   })
+end
+
 -- The queue around the current track, one line each, the current one highlighted; it scrolls to
 -- keep the current track near the top. Clicking a line plays it; ↑ ↓ ✕ move or drop it.
 local function queue_view(block: Block, s: Snapshot): Node?
@@ -801,20 +815,9 @@ local function queue_view(block: Block, s: Snapshot): Node?
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
-      -- A column for the marker: on the current entry, three accent bars that bounce like a level
-      -- meter while it plays and hold still while paused (styles/player.css animates them); empty
-      -- on the others so the titles line up.
-      local marker = if is_current
-         then with(ui.row({
-            with(ui.text(""), { key = "b1", role = "tidal-eq-bar tidal-eq-1" }),
-            with(ui.text(""), { key = "b2", role = "tidal-eq-bar tidal-eq-2" }),
-            with(ui.text(""), { key = "b3", role = "tidal-eq-bar tidal-eq-3" }),
-         }), {
-            key = "marker",
-            role = if playing() then "tidal-marker tidal-eq" else "tidal-marker tidal-eq tidal-eq-paused",
-            tone = "accent",
-         })
-         else with(ui.text(""), { key = "marker", role = "tidal-marker" })
+      -- A column for the marker: the level meter on the current entry, empty on the others so the
+      -- titles line up.
+      local marker = if is_current then level_meter("marker", "tidal-marker") else with(ui.text(""), { key = "marker", role = "tidal-marker" })
       local row: { Node } = {
          marker,
          with(ui.text(spans), {
@@ -990,6 +993,10 @@ local function view(block: Block): BlockView
       local badge = format_badge(s, if tone then "tidal-art-badge tidal-on-" .. tone else "tidal-art-badge")
       if badge then
          table.insert(art, badge)
+      end
+      -- A floating card's cover shows the level meter in its top-left corner, opposite the format.
+      if block.floating then
+         table.insert(art, level_meter("meter", "tidal-art-meter"))
       end
       -- With lyrics on, a floating card sings them over its cover, above the title (or the player).
       local over: { Node } = {}
