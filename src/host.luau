@@ -707,7 +707,8 @@ local PANEL_CHROME_ROWS = 5
 -- The big cover is as wide as the block up to 640 px (TIDAL sends it at that size), shrunk further
 -- so some of the list still fits under it. Sizes go in 8 px steps, about one column each
 -- (`tidal-art-w<px>` in styles/player.css), so it scales smoothly as the block resizes; there's an
--- 8 px gap below. Tern doesn't say how big a cell is; at its default font one is about 8 × 16 px.
+-- 8 px gap below. styles/player.css also keeps it within a quarter of the window's width. Tern
+-- doesn't say how big a cell is; at its default font one is about 8 × 16 px.
 local ART_PX = 640
 -- Small enough for short cards, big enough that the player over it doesn't hide the whole cover.
 local ART_MIN_PX = 160
