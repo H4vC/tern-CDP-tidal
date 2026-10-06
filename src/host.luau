@@ -723,9 +723,9 @@ local function search_rows(block: Block): number
    return if block.search then 1 else 0
 end
 
--- An unfocused floating card shows just the cover with the title on it, so the cover takes the
--- whole card and can be smaller (one line over it, not the player).
-local GLANCE_ART_MIN_PX = 64
+-- An unfocused floating card shows just the cover with the title, artist and format on it, so the
+-- cover takes the whole card and can be smaller (two lines over it, not the player).
+local GLANCE_ART_MIN_PX = 104
 
 -- The big cover's width in px, or nil when no useful size fits (then it stays a thumbnail).
 local function art_px(block: Block): number?
@@ -918,8 +918,15 @@ local function view(block: Block): BlockView
    elseif block.glance and not big_cover(block, s) then
       return { main = ui.col({ glance_view(block, s) }) }
    elseif block.glance then
-      -- Unfocused floating card: only the title, over the cover (below).
-      main = with(ui.text({ ui.span((s.track :: link.Track).title, "strong") }), { key = "title", role = "tidal-line tidal-glance-title" })
+      -- Unfocused floating card: the title and artist over the cover (below), the format on its corner.
+      local track = s.track :: link.Track
+      local lines: { Node } = {
+         with(ui.text({ ui.span(track.title, "strong") }), { key = "title", role = "tidal-line tidal-glance-title" }),
+      }
+      if track.artist ~= "" then
+         table.insert(lines, with(ui.text({ ui.span(track.artist) }), { key = "artist", role = "tidal-line tidal-glance-title tidal-stack-name" }))
+      end
+      main = ui.col(lines)
    else
       main = now_playing(block, s, big_cover(block, s))
    end
@@ -936,7 +943,7 @@ local function view(block: Block): BlockView
       -- out more against it in the current theme).
       local tone = s.cover and s.cover.tone
       local badge = format_badge(s, if tone then "tidal-art-badge tidal-on-" .. tone else "tidal-art-badge")
-      if badge and not block.glance then
+      if badge then
          table.insert(art, badge)
       end
       table.insert(art, with(ui.col({ main }), {
