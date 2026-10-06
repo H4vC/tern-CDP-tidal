@@ -555,10 +555,10 @@ local function now_playing(block: Block, s: Snapshot, big: boolean): Node
    if s.can["repeat"] then
       table.insert(controls, button("repeat", "repeat", "repeat", true, (shown("repeat", s["repeat"]) or "off") ~= "off"))
    end
-   -- Starts the current track's radio, after the song that's playing.
-   table.insert(controls, button("radio", "broadcast", "radio", true))
-   -- Your Daily Discovery, after the song that's playing.
-   table.insert(controls, button("discovery", "sparkle", "discovery", true, s.source == "My Daily Discovery"))
+   -- Starts the current track's radio, after the song that's playing; lit while a track radio plays.
+   table.insert(controls, button("radio", "broadcast", "radio", true, s.source_mix == "TRACK_MIX"))
+   -- Your Daily Discovery, after the song that's playing; lit while it plays.
+   table.insert(controls, button("discovery", "sparkle", "discovery", true, s.source_mix == "DISCOVERY_MIX"))
    table.insert(controls, button("lyrics", "text-quote", "lyrics", true, link.setting("lyrics")))
    table.insert(controls, button("sleep", "moon", "sleep", true, s.sleep ~= nil))
    local sleeping = sleep_label(s)
@@ -841,8 +841,47 @@ local function queue_view(block: Block, s: Snapshot): Node?
    return with(ui.col(lines), { key = "queue", role = "tidal-search tidal-queue" })
 end
 
--- The current track's lyrics. Synced lyrics follow the song: the current line highlighted, the
--- block's rows centred on it; plain lyrics show from the top.
+-- The current track's synced lyrics and the index of the line being sung (0 before the first),
+-- or nil when there are none (not loaded yet, plain text only, or none at all).
+local function synced_lyrics(s: Snapshot): ({ { ms: number, text: string } }?, number)
+   local l = lyrics
+   local track = s.track
+   if l == nil or track == nil or l.track ~= track.id or l.waiting or l.lines == nil then
+      return nil, 0
+   end
+   local synced = l.lines :: { { ms: number, text: string } }
+   local pos = position()
+   local now = 0
+   for i, line in synced do
+      if line.ms <= pos then
+         now = i
+      else
+         break
+      end
+   end
+   return synced, now
+end
+
+-- On a floating card with lyrics on: the line being sung over the cover, between the one before and
+-- the one after (dimmed). Nil without synced lyrics.
+local function lyric_strip(s: Snapshot): Node?
+   local synced, now = synced_lyrics(s)
+   if synced == nil then
+      return nil
+   end
+   local rows: { Node } = {}
+   for i = math.max(1, now - 1), math.min(#synced, math.max(now, 1) + 1) do
+      local text = if synced[i].text == "" then "♪" else synced[i].text
+      table.insert(rows, with(ui.text({ ui.span(text, if i == now then "strong" else nil) }), {
+         key = "l" .. i,
+         role = if i == now then "tidal-line tidal-overlay-lyric tidal-now" else "tidal-line tidal-overlay-lyric tidal-lyric-dim",
+      }))
+   end
+   return with(ui.col(rows), { key = "lyrics", role = "tidal-overlay-lyrics" })
+end
+
+-- The current track's lyrics. Synced lyrics follow the song: the line being sung in the accent
+-- colour, the block's rows centred on it; plain lyrics show from the top.
 local function lyrics_view(block: Block, s: Snapshot): Node
    local room = panel_rows(block)
    local track = s.track :: link.Track
@@ -856,28 +895,19 @@ local function lyrics_view(block: Block, s: Snapshot): Node
    local function note(text: string)
       table.insert(lines, with(ui.text({ ui.span("  " .. text, "dim") }), { key = "note", role = "tidal-line" }))
    end
+   local synced, now = synced_lyrics(s)
    if l == nil or l.track ~= track.id or l.waiting then
       note("loading…")
    elseif l.error then
       note(l.error)
-   elseif l.lines then
-      local synced = l.lines :: { { ms: number, text: string } }
-      local pos = position()
-      local now = 0
-      for i, line in synced do
-         if line.ms <= pos then
-            now = i
-         else
-            break
-         end
-      end
+   elseif synced then
       local first = math.clamp(now - math.floor(room / 3), 1, math.max(1, #synced - room + 1))
       for i = first, math.min(#synced, first + room - 1) do
          local line = synced[i]
          local text = if line.text == "" then "♪" else line.text
          table.insert(lines, with(ui.text({ ui.span(text, if i == now then "strong" elseif i < now then "dim" else nil) }), {
             key = "l" .. i,
-            role = if i == now then "tidal-line tidal-lyric tidal-selected" else "tidal-line tidal-lyric",
+            role = if i == now then "tidal-line tidal-lyric tidal-selected tidal-now" else "tidal-line tidal-lyric",
             tone = if i == now then "accent" else nil,
             -- Clicking a line goes to it.
             actions = { click = "lyricseek=" .. tostring(line.ms) },
@@ -951,7 +981,14 @@ local function view(block: Block): BlockView
       if badge then
          table.insert(art, badge)
       end
-      table.insert(art, with(ui.col({ main }), {
+      -- With lyrics on, a floating card sings them over its cover, above the title (or the player).
+      local over: { Node } = {}
+      local strip = if block.floating and link.setting("lyrics") then lyric_strip(s) else nil
+      if strip then
+         table.insert(over, strip)
+      end
+      table.insert(over, main)
+      table.insert(art, with(ui.col(over), {
          key = "overlay",
          role = if block.glance then "tidal-overlay tidal-overlay-title" else "tidal-overlay",
       }))
@@ -960,12 +997,16 @@ local function view(block: Block): BlockView
       table.insert(parts, main)
    end
    if st and not block.glance then
-      table.insert(parts, search.view(st, panel_rows(block), s and s.track and s.track.id))
+      local now: search.Playing = if s
+         then { track = s.track and s.track.id, type = s.source_type, id = s.source_id, mix = s.source_mix, name = s.source }
+         else {}
+      table.insert(parts, search.view(st, panel_rows(block), now))
    end
    -- Results or a list take the space while there are any; otherwise the player shows the lyrics or
    -- the queue in whatever rows are left, docked or floating (not on an unfocused card: cover only).
+   -- A floating card with a big cover has its lyrics over the cover, so the queue stays below.
    if not block.glance and not (st and search.busy(st)) and s and s.track and panel_rows(block) >= 2 then
-      if link.setting("lyrics") then
+      if link.setting("lyrics") and not (block.floating and big) then
          table.insert(parts, lyrics_view(block, s))
       else
          local queue = queue_view(block, s)

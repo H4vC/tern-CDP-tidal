@@ -56,11 +56,16 @@ Only Windows has been run so far; macOS and Linux follow the same path but are u
   Daily Discovery" mix after the song that's playing. It's also the default: when nothing is queued
   after the current song (one you picked on its own, or the end of a list) and repeat is off, Daily
   Discovery is queued after it, so playback carries on.
+- **What's playing from** is marked in the accent colour: the radio button while a track radio
+  plays, ✦ while Daily Discovery does, **play all** / **radio** in an album or artist list while the
+  queue plays that album or artist (radio), and the album, playlist or artist in search results.
 - **Under the player**, in whatever height the block has (docked or floating and focused): the
   queue, or the lyrics. The queue shows a couple of played tracks, the current one highlighted and
   what comes next; click a line to play it, hover for ↑ ↓ ✕ to move or drop it, or **link** to copy
-  the track's share address (tidal.com/track/…). Synced lyrics follow the song; click a line to
-  jump there.
+  the track's share address (tidal.com/track/…). Synced lyrics follow the song with the line being
+  sung in the accent colour; click a line to jump there. On a floating card with the big cover,
+  lyrics play over the cover instead (the sung line between the ones around it), and the queue
+  stays below.
 - **Floating and not focused:** just the cover with the title, artist and stream format on it,
   filling the card. A card too small for that shows a compact preview (title, artist · album, the
   timeline and what plays next).

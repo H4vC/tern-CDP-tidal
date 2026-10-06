@@ -208,13 +208,27 @@ local function with(node: Node, props: { [string]: any }): Node
    return node
 end
 
-local function small_button(key: string, label: string, action: string): Node
-   return with(ui.text({ ui.span(label) }), { key = key, role = "tidal-row-button", actions = { click = action } })
+local function small_button(key: string, label: string, action: string, lit: boolean?): Node
+   return with(ui.text({ ui.span(label) }), {
+      key = key,
+      role = "tidal-row-button",
+      tone = if lit then "accent" else nil,
+      actions = { click = action },
+   })
 end
 
 local KIND = { track = "♪", album = "◎", artist = "☺", playlist = "≡" }
 
-local function heading(st: State): Node
+-- What's playing, so the panel can mark it: the track id, and the queue's source (its type and id,
+-- a mix's kind and the source's name).
+export type Playing = { track: string?, type: string?, id: string?, mix: string?, name: string? }
+
+-- Whether the queue plays from this item (an album, playlist or artist you can see in the list).
+local function is_source(now: Playing, kind: string, id: string): boolean
+   return kind ~= "track" and now.type == kind and now.id == id
+end
+
+local function heading(st: State, now: Playing): Node
    local list = st.list
    if list and st.query == "" then
       local spans: { Span } = {
@@ -230,9 +244,11 @@ local function heading(st: State): Node
          table.insert(spans, ui.span("   " .. st.error, "dim"))
       end
       local row: { Node } = { with(ui.text(spans), { key = "title", role = "tidal-line" }) }
-      table.insert(row, small_button("playall", "play all", "playall"))
+      -- Lit while the queue plays this list, or (radio) this artist's mix, which TIDAL names after them.
+      table.insert(row, small_button("playall", "play all", "playall", is_source(now, list.kind, list.id)))
       if list.kind == "artist" then
-         table.insert(row, small_button("artistradio", "radio", "artistradio"))
+         local radio = now.mix == "ARTIST_MIX" and list.title ~= nil and now.name == list.title
+         table.insert(row, small_button("artistradio", "radio", "artistradio", radio))
       end
       table.insert(row, small_button("back", "esc", "closesearch"))
       return with(ui.row(row), { key = "query", role = "tidal-list-heading" })
@@ -250,10 +266,10 @@ local function heading(st: State): Node
    }), { key = "query", role = "tidal-line tidal-query" })
 end
 
--- `rows` caps how many items show; the rest are summarised in one line. `playing` is the id of the
--- track that's playing, shown in the accent colour where it appears.
-function search.view(st: State, rows: number, playing: string?): Node
-   local lines: { Node } = { heading(st) }
+-- `rows` caps how many items show; the rest are summarised in one line. What's playing (`now`)
+-- shows in the accent colour: the track, and the album, playlist or artist the queue plays from.
+function search.view(st: State, rows: number, now: Playing): Node
+   local lines: { Node } = { heading(st, now) }
    local shown = math.min(#st.items, math.max(1, rows))
    for i = 1, shown do
       local item = st.items[i]
@@ -268,11 +284,11 @@ function search.view(st: State, rows: number, playing: string?): Node
       if item.length_s then
          table.insert(spans, ui.span("  " .. link.clock(item.length_s * 1000), "dim"))
       end
-      local now = item.kind == "track" and playing ~= nil and item.id == playing
+      local current = (item.kind == "track" and now.track ~= nil and item.id == now.track) or is_source(now, item.kind, item.id)
       local row: { Node } = {
          with(ui.text(spans), {
             key = "label",
-            role = if now then "tidal-line tidal-row-label tidal-now" else "tidal-line tidal-row-label",
+            role = if current then "tidal-line tidal-row-label tidal-now" else "tidal-line tidal-row-label",
             actions = { click = "pick=" .. i },
          }),
       }

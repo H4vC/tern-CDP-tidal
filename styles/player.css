@@ -279,6 +279,17 @@
 	[data-role~='tidal-overlay-title'] [data-role~='tidal-glance-title'] {
 		flex: none;
 	}
+	/* Lyrics over a floating card's cover: the line being sung in the accent, the ones around it dim. */
+	[data-role~='tidal-overlay-lyrics'] {
+		flex: none;
+		margin-bottom: 6px;
+	}
+	[data-role~='tidal-overlay-lyric'] {
+		flex: none;
+	}
+	[data-role~='tidal-overlay'] [data-role~='tidal-lyric-dim'] {
+		opacity: 0.6;
+	}
 	[data-role~='tidal-overlay'] * {
 		color: rgba(255, 255, 255, 0.92);
 	}
@@ -288,6 +299,8 @@
 	}
 	[data-role~='tidal-overlay'] [data-tone='accent'],
 	[data-role~='tidal-overlay'] [data-tone='accent'] *,
+	[data-role~='tidal-overlay'] [data-role~='tidal-now'],
+	[data-role~='tidal-overlay'] [data-role~='tidal-now'] *,
 	[data-role~='tidal-overlay'] [data-role~='tidal-button-main'] {
 		color: var(--accent);
 	}
@@ -403,6 +416,12 @@
 	[data-role~='tidal-row-button']:hover {
 		background: var(--l2);
 		color: var(--t1);
+	}
+	/* A list-heading button for what's playing now (play all, radio): accent, and always shown. */
+	[data-role~='tidal-row-button'][data-tone='accent'],
+	[data-role~='tidal-row-button'][data-tone='accent'] * {
+		color: var(--accent);
+		opacity: 1;
 	}
 	[data-role~='tidal-list-heading'] {
 		align-items: center;

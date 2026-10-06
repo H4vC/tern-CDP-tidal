@@ -86,6 +86,11 @@ export type Snapshot = {
    format: string?,
    -- Where the queue came from (a playlist, album or mix name).
    source: string?,
+   -- What it is (album, playlist, artist, mix, search, …) and its id; for a mix, its kind
+   -- (TRACK_MIX for a track radio, ARTIST_MIX, DISCOVERY_MIX, DAILY_MIX, …).
+   source_type: string?,
+   source_id: string?,
+   source_mix: string?,
    -- The next track in the queue, when TIDAL has its details.
    next: { title: string, artist: string }?,
    -- The queue around the current track: `items[current]` (1-based in Luau: current + 1) is playing;

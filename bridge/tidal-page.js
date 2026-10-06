@@ -4,7 +4,7 @@
 // `__ternTidalCommand(op, arg)` for the bridge to drive playback with TIDAL's own actions.
 (() => {
 	// Bump with any change here, so a newer bridge replaces what an older one installed.
-	const VERSION = 21;
+	const VERSION = 22;
 	if (window.__ternTidalVersion === VERSION) {
 		// Installed already: report again, for a bridge that just (re)connected.
 		window.__ternTidalEmit();
@@ -202,7 +202,30 @@
 			quality: context.actualAudioQuality || null,
 			format: format(context),
 			source: queue.sourceName || null,
+			// What the queue plays from: album, playlist, artist, mix, search, …, and its id; for a mix,
+			// its kind (TRACK_MIX for a track radio, ARTIST_MIX, DISCOVERY_MIX, DAILY_MIX, …).
+			source_type: queue.sourceEntityType || null,
+			source_id: queue.sourceEntityId ? String(queue.sourceEntityId) : null,
+			source_mix: queue.sourceEntityType === 'mix' && queue.sourceEntityId ? mixType(String(queue.sourceEntityId)) : null,
 		};
+	};
+
+	// A mix's kind, by id, looked up once from its page; null until known.
+	const mixTypes = new Map();
+	const mixType = (id) => {
+		if (mixTypes.has(id)) {
+			const known = mixTypes.get(id);
+			return known === 'pending' ? null : known;
+		}
+		mixTypes.set(id, 'pending');
+		v1('pages/mix?mixId=' + encodeURIComponent(id) + '&deviceType=DESKTOP&locale=en_US')
+			.then((page) => {
+				const header = (page.rows || []).flatMap((row) => row.modules || []).find((m) => m.type === 'MIX_HEADER');
+				mixTypes.set(id, (header && header.mix && header.mix.mixType) || null);
+			})
+			.catch(() => mixTypes.delete(id))
+			.then(() => window.__ternTidalEmit && window.__ternTidalEmit());
+		return null;
 	};
 
 	const emit = () => {
